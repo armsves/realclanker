@@ -19,6 +19,11 @@ type Concert = {
   saleEndsAt: number;
   createdAt?: number;
   suiPoolId?: string;
+  art?: {
+    kind: "image" | "video";
+    contentType: string;
+    updatedAt: number;
+  };
 };
 
 type Attempt = Racer & {
@@ -235,6 +240,18 @@ export function Dashboard() {
     window.location.href = `/api/worldid/start?${query.toString()}`;
   }
 
+  async function uploadArt(file: File | undefined) {
+    if (!concert || !file) return;
+    setBusy("art");
+    setError("");
+    const body = new FormData();
+    body.set("file", file);
+    const response = await fetch(`/api/concerts/${concert.id}/art`, { method: "POST", body });
+    const payload = await response.json();
+    setBusy("");
+    if (!response.ok) setError(payload.error || "Could not store the art.");
+  }
+
   const worldNote =
     params.get("worldid") === "ok"
       ? "World ID grant stored. That ENS agent can buy through the MCP server."
@@ -374,6 +391,7 @@ export function Dashboard() {
             supply={concert?.supply ?? 0}
             title={concert?.name ?? "Ticket pool"}
           />
+          {concert?.art ? <ConcertArt concert={concert} className="poster" /> : null}
         </section>
 
         <aside className="panel archive">
@@ -389,12 +407,19 @@ export function Dashboard() {
                       className={item.id === concert?.id ? "active" : ""}
                       onClick={() => setSelected(item.id)}
                     >
-                      <strong>{item.name}</strong>
-                      <span>
-                        {saleStatus(item)} · {item.sold}/{item.supply} · {attemptCount} attempts
-                      </span>
-                      <span>
-                        {when(item.saleStartsAt ?? item.createdAt ?? item.saleEndsAt)} → {when(item.saleEndsAt)}
+                      {item.art ? (
+                        <ConcertArt concert={item} className="thumb" />
+                      ) : (
+                        <span className="thumb empty" />
+                      )}
+                      <span className="show-copy">
+                        <strong>{item.name}</strong>
+                        <span>
+                          {saleStatus(item)} · {item.sold}/{item.supply} · {attemptCount} attempts
+                        </span>
+                        <span>
+                          {when(item.saleStartsAt ?? item.createdAt ?? item.saleEndsAt)} → {when(item.saleEndsAt)}
+                        </span>
                       </span>
                     </button>
                   </li>
@@ -445,6 +470,19 @@ export function Dashboard() {
               {concert.suiPoolId ? (
                 <ExplorerLinks links={[{ label: "Sui pool", href: suiObject(concert.suiPoolId) }]} />
               ) : null}
+              <label className="upload">
+                {busy === "art" ? "Uploading…" : concert.art ? "Replace picture or video" : "Upload picture or video"}
+                <input
+                  type="file"
+                  accept="image/*,video/mp4,video/webm"
+                  disabled={busy === "art"}
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    event.target.value = "";
+                    void uploadArt(file);
+                  }}
+                />
+              </label>
             </>
           ) : (
             <p className="note">Select a concert.</p>
@@ -544,6 +582,18 @@ function saleStatus(concert: Concert) {
   if (now < start) return "upcoming";
   if (now > concert.saleEndsAt) return "ended";
   return "on sale";
+}
+
+function artUrl(concert: Concert) {
+  return `/api/concerts/${concert.id}/art?v=${concert.art?.updatedAt ?? 0}`;
+}
+
+function ConcertArt({ concert, className }: { concert: Concert; className: string }) {
+  if (!concert.art) return null;
+  if (concert.art.kind === "video") {
+    return <video className={className} src={artUrl(concert)} controls={className === "poster"} muted playsInline />;
+  }
+  return <img className={className} src={artUrl(concert)} alt="" />;
 }
 
 function clock(at: number) {

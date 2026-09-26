@@ -20,6 +20,11 @@ export type Concert = {
   createdAt: number;
   suiPoolId?: string;
   suiPoolError?: string;
+  art?: {
+    kind: "image" | "video";
+    contentType: string;
+    updatedAt: number;
+  };
 };
 
 export type Agent = {

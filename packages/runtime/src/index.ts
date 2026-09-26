@@ -2,8 +2,10 @@ import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { config } from "dotenv";
 import {
+  readJson,
   readState,
   repoRoot,
+  withJson,
   withState,
   type Agent,
   type Attempt,
@@ -82,6 +84,40 @@ export async function createConcert(input: {
     });
   }
   return concert;
+}
+
+const ART_LIMIT = 4_000_000;
+
+export async function setConcertArt(
+  concertId: string,
+  file: { contentType: string; bytes: Uint8Array },
+): Promise<Concert> {
+  const contentType = file.contentType.toLowerCase();
+  const kind = contentType.startsWith("image/") ? "image" : contentType.startsWith("video/") ? "video" : null;
+  if (!kind) throw new Error("Art must be a picture or a video.");
+  if (file.bytes.byteLength < 1 || file.bytes.byteLength > ART_LIMIT) {
+    throw new Error("Art must be a file under 4 MB.");
+  }
+  const current = await readState();
+  const existing = current.concerts.find((item) => item.id === concertId);
+  if (!existing) throw new Error("Concert not found.");
+  const updatedAt = Date.now();
+  await withJson(`art-${concertId}.json`, { contentType: "", data: "" }, (art) => {
+    art.contentType = contentType;
+    art.data = Buffer.from(file.bytes).toString("base64");
+  });
+  await withState((state) => {
+    const concert = state.concerts.find((item) => item.id === concertId);
+    if (!concert) return;
+    concert.art = { kind, contentType, updatedAt };
+  });
+  return { ...existing, art: { kind, contentType, updatedAt } };
+}
+
+export async function readConcertArt(concertId: string): Promise<{ contentType: string; bytes: Buffer } | null> {
+  const art = await readJson(`art-${concertId}.json`, { contentType: "", data: "" });
+  if (!art.data || !art.contentType) return null;
+  return { contentType: art.contentType, bytes: Buffer.from(art.data, "base64") };
 }
 
 export async function registerAgent(
