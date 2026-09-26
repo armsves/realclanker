@@ -3,15 +3,12 @@ import { createHash } from "node:crypto";
 export function avatarDataUri(seed: string): string {
   const hash = createHash("sha256").update(seed).digest();
   const hue = hash[0]! * 1.4;
-  const hue2 = (hue + 40 + (hash[1]! % 80)) % 360;
-  const mark = seed.replace(".realclanker.eth", "").slice(0, 1).toUpperCase();
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-    <rect width="64" height="64" rx="32" fill="hsl(${hue} 62% 42%)"/>
-    <circle cx="32" cy="32" r="22" fill="hsl(${hue2} 78% 62%)"/>
-    <circle cx="24" cy="27" r="3" fill="#1a1208"/>
-    <circle cx="40" cy="27" r="3" fill="#1a1208"/>
-    <path d="M22 40c4 5 16 5 20 0" fill="none" stroke="#1a1208" stroke-width="2" stroke-linecap="round"/>
-    <text x="32" y="58" text-anchor="middle" font-family="ui-monospace,monospace" font-size="8" fill="#fff">${mark}</text>
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+    <circle cx="64" cy="64" r="64" fill="hsl(${hue} 68% 46%)"/>
+    <path d="M63.0193 22.2941L39.4613 60.9188C39.2765 61.2217 38.8473 61.2555 38.6181 60.9843C36.5441 58.5306 28.8176 48.0916 38.3784 38.5771C47.1027 29.895 58.215 23.7049 62.3334 21.5655C62.8006 21.3228 63.2928 21.8457 63.0193 22.2941Z" fill="#f7f4ee"/>
+    <path d="M61.7168 106.393C62.1869 106.721 62.7662 106.162 62.4511 105.684C57.1892 97.7094 39.6975 71.1752 37.2812 67.192C34.898 63.2632 30.2105 56.734 29.8194 51.1479C29.7804 50.5902 29.0065 50.477 28.8118 51.0014C28.4979 51.8472 28.1636 52.8567 27.8521 54.0099C23.9193 68.5672 29.6309 84.0145 42.0353 92.6661L61.7168 106.393Z" fill="#f7f4ee"/>
+    <path d="M64.9535 105.706L88.5116 67.0816C88.6964 66.7788 89.1256 66.745 89.3548 67.0161C91.4287 69.4699 99.1553 79.9089 89.5945 89.4234C80.8702 98.1054 69.7579 104.296 65.6395 106.435C65.1723 106.678 64.68 106.155 64.9535 105.706Z" fill="#f7f4ee"/>
+    <path d="M66.2811 21.6021C65.811 21.2742 65.2317 21.8334 65.5468 22.311C70.8087 30.2858 88.3004 56.8201 90.7167 60.8032C93.1 64.732 97.7874 71.2612 98.1785 76.8473C98.2175 77.405 98.9914 77.5182 99.1861 76.9938C99.5 76.148 99.8343 75.1385 100.146 73.9853C104.079 59.428 98.367 43.9808 85.9626 35.3291L66.2811 21.6021Z" fill="#f7f4ee"/>
   </svg>`;
   return `data:image/svg+xml,${encodeURIComponent(svg)}`;
 }

@@ -15,6 +15,7 @@ export type Concert = {
   sold: number;
   priceMist: string;
   maxPerHuman: number;
+  saleStartsAt?: number;
   saleEndsAt: number;
   createdAt: number;
   suiPoolId?: string;

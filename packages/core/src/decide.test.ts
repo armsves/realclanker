@@ -91,6 +91,18 @@ test("expired and wrong-concert grants are denied", () => {
   assert.match(wrongShow.reason, /not valid for this concert/i);
 });
 
+test("a sale that has not opened yet is denied", () => {
+  const decision = decide({
+    now,
+    concertId: "show",
+    concert: concert({ saleStartsAt: now + 60_000, saleEndsAt: now + 120_000 }),
+    grantsForAgent: [grant()],
+    completedByHuman: () => 0,
+  });
+  assert.equal(decision.outcome, "PURCHASE_DENIED");
+  assert.match(decision.reason, /not started/i);
+});
+
 test("sold out supply denies a valid human", () => {
   const decision = decide({
     now,

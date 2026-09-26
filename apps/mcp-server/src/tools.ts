@@ -23,13 +23,15 @@ export function createMcpServer() {
     "create_concert",
     {
       title: "Create concert",
-      description: "Open a ticket pool with supply, price, per-human cap, and a sale window.",
+      description: "Open a ticket pool with supply, price, per-human cap, and a sale window. Pass saleStartsAt and saleEndsAt as unix milliseconds, or saleMinutes to end that long after now.",
       inputSchema: z.object({
         name: z.string(),
         venue: z.string().default("Tokyo"),
         supply: z.number().int().positive(),
         priceMist: z.string().default("0"),
         maxPerHuman: z.number().int().positive().default(1),
+        saleStartsAt: z.number().int().optional(),
+        saleEndsAt: z.number().int().optional(),
         saleMinutes: z.number().positive().default(180),
       }),
     },
@@ -41,7 +43,8 @@ export function createMcpServer() {
           supply: input.supply,
           priceMist: input.priceMist,
           maxPerHuman: input.maxPerHuman,
-          saleEndsAt: Date.now() + input.saleMinutes * 60_000,
+          saleStartsAt: input.saleStartsAt,
+          saleEndsAt: input.saleEndsAt ?? Date.now() + input.saleMinutes * 60_000,
         }),
       ),
   );

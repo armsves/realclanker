@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { ENS_MARK_PATHS, ensColor } from "./ensMark";
 
 type Outcome =
   | "PURCHASE_COMPLETE"
@@ -62,20 +63,9 @@ export function RaceCanvas({
 
     const swimmers: Swimmer[] = [];
     const known = new Set<string>();
-    const images = new Map<string, HTMLImageElement>();
     let frame = 0;
     let last = performance.now();
     const timers: number[] = [];
-
-    const imageFor = (url: string) => {
-      if (!url) return undefined;
-      const cached = images.get(url);
-      if (cached) return cached;
-      const image = new Image();
-      image.src = url;
-      images.set(url, image);
-      return image;
-    };
 
     const spawn = (racer: Racer) => {
       const rect = canvas.getBoundingClientRect();
@@ -92,7 +82,6 @@ export function RaceCanvas({
         slot: swimmers.length,
         jailIndex: -1,
       });
-      imageFor(racer.avatarUrl);
     };
 
     const watch = window.setInterval(() => {
@@ -117,7 +106,7 @@ export function RaceCanvas({
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, width, height);
 
-      const pool = { x: width * 0.64, y: height * 0.44, r: Math.min(92, width * 0.12) };
+      const pool = poolLayout(width, height);
       const jail = { x: 16, y: height - 168, w: width - 32, h: 150 };
       const cols = Math.max(3, Math.floor((jail.w - 20) / 120));
 
@@ -145,21 +134,17 @@ export function RaceCanvas({
       const scale = (pool.r * 2) / 71.8;
       ctx.save();
       ctx.translate(pool.x, pool.y);
+      ctx.shadowColor = "rgba(0, 0, 0, 0.65)";
+      ctx.shadowBlur = 22;
+      ctx.shadowOffsetY = 6;
       ctx.scale(scale, scale);
       ctx.translate(-35.9, -35.9);
-      ctx.fillStyle = "#f4f1ea";
+      ctx.fillStyle = "#ffffff";
       ctx.fill(new Path2D(WORLD_MARK_PATH));
       ctx.restore();
 
       const label = meta.current.title || "Ticket pool";
-      ctx.textAlign = "center";
-      ctx.fillStyle = "#1a1208";
-      ctx.font = "650 15px Fraunces, serif";
-      ctx.fillText(label.slice(0, 16), pool.x, pool.y + 5);
-      ctx.fillStyle = "#f4f1ea";
-      ctx.font = "12px 'IBM Plex Mono', monospace";
-      ctx.fillText(`${meta.current.sold}/${meta.current.supply || 0}`, pool.x, pool.y + pool.r * 0.34);
-      ctx.textAlign = "left";
+      paintPoolLabel(ctx, pool.x, pool.y, label.slice(0, 18), `${meta.current.sold}/${meta.current.supply || 0}`);
 
       let jailCursor = 0;
       for (const swimmer of swimmers) {
@@ -170,7 +155,7 @@ export function RaceCanvas({
         }
         if (swimmer.jailIndex >= 0) jailCursor = Math.max(jailCursor, swimmer.jailIndex + 1);
         if (swimmer.stage === "done") continue;
-        drawSwimmer(ctx, swimmer, imageFor(swimmer.avatarUrl));
+        drawSwimmer(ctx, swimmer);
       }
 
       frame = requestAnimationFrame(draw);
@@ -187,9 +172,19 @@ export function RaceCanvas({
   return <canvas ref={canvasRef} aria-label="Agents racing toward the ticket pool" />;
 }
 
+function poolLayout(width: number, height: number) {
+  const jailTop = height - 176;
+  return {
+    x: width * 0.5,
+    y: Math.max(96, jailTop * 0.5),
+    r: Math.min(112, width * 0.16, Math.max(72, jailTop * 0.24)),
+  };
+}
+
 function spawnPoint(width: number, height: number, index: number) {
-  const cx = width * 0.64;
-  const cy = height * 0.44;
+  const pool = poolLayout(width, height);
+  const cx = pool.x;
+  const cy = pool.y;
   const outward = index * 2.399963229728653;
   const ux = Math.cos(outward);
   const uy = Math.sin(outward);
@@ -252,30 +247,14 @@ function step(
   }
 }
 
-function drawSwimmer(
-  ctx: CanvasRenderingContext2D,
-  swimmer: Swimmer,
-  image: HTMLImageElement | undefined,
-) {
+function drawSwimmer(ctx: CanvasRenderingContext2D, swimmer: Swimmer) {
   const color = COLOR[swimmer.outcome];
   const name = swimmer.ensName.replace(".realclanker.eth", "");
+  const head = ensColor(swimmer.ensName);
   if (swimmer.stage === "jailed") {
     ctx.save();
     ctx.translate(swimmer.x, swimmer.y);
-    ctx.beginPath();
-    ctx.arc(0, 0, 11, 0, Math.PI * 2);
-    ctx.fillStyle = "#1a120c";
-    ctx.fill();
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(0, 0, 10, 0, Math.PI * 2);
-    ctx.clip();
-    if (image && image.complete && image.naturalWidth > 0) ctx.drawImage(image, -10, -10, 20, 20);
-    else {
-      ctx.fillStyle = color;
-      ctx.fillRect(-10, -10, 20, 20);
-    }
-    ctx.restore();
+    drawEnsHead(ctx, 0, 0, 14, head);
     ctx.fillStyle = color;
     ctx.font = "10px 'IBM Plex Mono', monospace";
     ctx.textAlign = "center";
@@ -290,22 +269,52 @@ function drawSwimmer(
   ctx.fillStyle = color;
   ctx.font = "11px 'IBM Plex Mono', monospace";
   ctx.textAlign = "right";
-  ctx.fillText(name.slice(0, 18), -14, 4);
-  ctx.beginPath();
-  ctx.arc(8, 0, 12, 0, Math.PI * 2);
-  ctx.fillStyle = "#1a120c";
-  ctx.fill();
-  ctx.save();
-  ctx.beginPath();
-  ctx.arc(8, 0, 11, 0, Math.PI * 2);
-  ctx.clip();
-  if (image && image.complete && image.naturalWidth > 0) {
-    ctx.drawImage(image, -3, -11, 22, 22);
-  } else {
-    ctx.fillStyle = color;
-    ctx.fillRect(-3, -11, 22, 22);
-  }
+  ctx.fillText(name.slice(0, 18), -16, 4);
+  drawEnsHead(ctx, 10, 0, 15, head);
   ctx.restore();
+}
+
+function paintPoolLabel(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  title: string,
+  count: string,
+) {
+  ctx.save();
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = "680 18px Fraunces, serif";
+  const titleWidth = ctx.measureText(title).width;
+  ctx.font = "600 14px 'IBM Plex Mono', monospace";
+  const countWidth = ctx.measureText(count).width;
+  const width = Math.max(titleWidth, countWidth) + 36;
+  const height = 58;
+  ctx.fillStyle = "#14110c";
+  roundRect(ctx, x - width / 2, y - height / 2, width, height, 12);
+  ctx.fill();
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "680 18px Fraunces, serif";
+  ctx.fillText(title, x, y - 10);
+  ctx.fillStyle = "#f0b429";
+  ctx.font = "600 14px 'IBM Plex Mono', monospace";
+  ctx.fillText(count, x, y + 12);
+  ctx.restore();
+}
+
+function drawEnsHead(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number, color: string) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.beginPath();
+  ctx.arc(0, 0, radius, 0, Math.PI * 2);
+  ctx.fillStyle = color;
+  ctx.fill();
+  ctx.clip();
+  const scale = (radius * 2) / 128;
+  ctx.scale(scale, scale);
+  ctx.translate(-64, -64);
+  ctx.fillStyle = "#f7f4ee";
+  for (const path of ENS_MARK_PATHS) ctx.fill(new Path2D(path));
   ctx.restore();
 }
 

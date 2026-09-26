@@ -12,6 +12,10 @@ export function decide(input: {
   if (!concert) {
     return { outcome: "PURCHASE_DENIED", reason: "Concert does not exist." };
   }
+  const saleStartsAt = concert.saleStartsAt ?? concert.createdAt;
+  if (now < saleStartsAt) {
+    return { outcome: "PURCHASE_DENIED", reason: "Ticket sale has not started." };
+  }
   if (now > concert.saleEndsAt) {
     return { outcome: "PURCHASE_DENIED", reason: "Ticket sale has ended." };
   }

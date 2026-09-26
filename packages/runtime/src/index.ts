@@ -42,8 +42,10 @@ export async function createConcert(input: {
   supply: number;
   priceMist: string;
   maxPerHuman: number;
+  saleStartsAt?: number;
   saleEndsAt: number;
 }): Promise<Concert> {
+  const createdAt = Date.now();
   const concert: Concert = {
     id: nid("show"),
     name: input.name.trim(),
@@ -52,11 +54,15 @@ export async function createConcert(input: {
     sold: 0,
     priceMist: input.priceMist,
     maxPerHuman: input.maxPerHuman,
+    saleStartsAt: input.saleStartsAt ?? createdAt,
     saleEndsAt: input.saleEndsAt,
-    createdAt: Date.now(),
+    createdAt,
   };
   if (!concert.name || concert.supply < 1 || concert.maxPerHuman < 1) {
     throw new Error("Concert needs a name, supply, and a per-human cap.");
+  }
+  if (concert.saleEndsAt <= (concert.saleStartsAt ?? createdAt)) {
+    throw new Error("Sale end must be after the sale start.");
   }
   await withState((state) => {
     state.concerts.unshift(concert);

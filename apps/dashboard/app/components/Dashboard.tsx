@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { ENS_MARK_PATHS, ensColor } from "./ensMark";
 import { RaceCanvas, type Racer } from "./RaceCanvas";
 
 type Outcome = Racer["outcome"];
@@ -14,7 +15,9 @@ type Concert = {
   sold: number;
   priceMist: string;
   maxPerHuman: number;
+  saleStartsAt?: number;
   saleEndsAt: number;
+  createdAt?: number;
 };
 
 type Attempt = Racer & {
@@ -51,8 +54,20 @@ const emptyForm = {
   supply: "12",
   priceSui: "0.1",
   maxPerHuman: "1",
-  saleMinutes: "180",
+  ...defaultWindow(),
 };
+
+function defaultWindow() {
+  const start = new Date();
+  start.setSeconds(0, 0);
+  const end = new Date(start.getTime() + 180 * 60_000);
+  return { saleStartsAt: toLocalInput(start), saleEndsAt: toLocalInput(end) };
+}
+
+function toLocalInput(date: Date) {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
 
 export function Dashboard() {
   const params = useSearchParams();
@@ -63,6 +78,7 @@ export function Dashboard() {
   const [agents, setAgents] = useState("50");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const [loadError, setLoadError] = useState("");
   const [attack, setAttack] = useState<AttackSummary | null>(null);
   const [mintNote, setMintNote] = useState("");
   const [replay, setReplay] = useState(0);
@@ -71,12 +87,17 @@ export function Dashboard() {
     let stop = false;
     const pull = async () => {
       const response = await fetch("/api/state", { cache: "no-store" });
-      if (!response.ok || stop) return;
+      if (stop) return;
+      if (!response.ok) {
+        setLoadError("Concerts could not be loaded.");
+        return;
+      }
       const next = (await response.json()) as Snapshot;
-      if (!stop) setData(next);
+      setLoadError("");
+      setData(next);
     };
     void pull();
-    const timer = window.setInterval(() => void pull(), 600);
+    const timer = window.setInterval(() => void pull(), 1500);
     return () => {
       stop = true;
       window.clearInterval(timer);
@@ -106,10 +127,17 @@ export function Dashboard() {
     setBusy("create");
     setError("");
     setAttack(null);
+    const saleStartsAt = new Date(form.saleStartsAt).getTime();
+    const saleEndsAt = new Date(form.saleEndsAt).getTime();
+    if (!Number.isFinite(saleStartsAt) || !Number.isFinite(saleEndsAt) || saleEndsAt <= saleStartsAt) {
+      setBusy("");
+      setError("Sale end must be after the sale start.");
+      return;
+    }
     const response = await fetch("/api/concerts", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(form),
+      body: JSON.stringify({ ...form, saleStartsAt, saleEndsAt }),
     });
     const body = await response.json();
     setBusy("");
@@ -207,16 +235,26 @@ export function Dashboard() {
                 <input value={form.priceSui} onChange={(event) => setForm({ ...form, priceSui: event.target.value })} />
               </label>
             </div>
-            <div className="row2">
-              <label>
-                Max / human
-                <input value={form.maxPerHuman} onChange={(event) => setForm({ ...form, maxPerHuman: event.target.value })} />
-              </label>
-              <label>
-                Minutes
-                <input value={form.saleMinutes} onChange={(event) => setForm({ ...form, saleMinutes: event.target.value })} />
-              </label>
-            </div>
+            <label>
+              Max / human
+              <input value={form.maxPerHuman} onChange={(event) => setForm({ ...form, maxPerHuman: event.target.value })} />
+            </label>
+            <label>
+              Sale starts
+              <input
+                type="datetime-local"
+                value={form.saleStartsAt}
+                onChange={(event) => setForm({ ...form, saleStartsAt: event.target.value })}
+              />
+            </label>
+            <label>
+              Sale ends
+              <input
+                type="datetime-local"
+                value={form.saleEndsAt}
+                onChange={(event) => setForm({ ...form, saleEndsAt: event.target.value })}
+              />
+            </label>
             <div className="actions">
               <button
                 className="primary"
@@ -230,33 +268,11 @@ export function Dashboard() {
             {!data
               ? "Checking the MCP server…"
               : data.hosted
-                ? `Agents connect at ${data.mcpUrl}. Concerts, wallets, and tickets stay on this deployment.`
+                ? `Agents connect at ${data.mcpUrl}.`
                 : data.mcp
-                  ? "MCP is live. This form opens the concert through the MCP server."
+                  ? "MCP is live."
                   : "MCP is offline. Start pnpm dev before creating a concert."}
           </p>
-          {data && data.concerts.length > 0 && (
-            <label>
-              Watching
-              <select
-                value={concert?.id ?? ""}
-                onChange={(event) => setSelected(event.target.value)}
-              >
-                {data.concerts.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-          {concert && (
-            <p className="rules">
-              {concert.venue} · {concert.sold}/{concert.supply} sold · cap {concert.maxPerHuman} ·{" "}
-              {(Number(concert.priceMist) / 1e9).toString()} SUI
-            </p>
-          )}
-
           <h2>Delegate</h2>
           <label>
             ENS v2 agent
@@ -271,9 +287,7 @@ export function Dashboard() {
             </button>
           </div>
           <p className="note">
-            Mint creates an EVM wallet for this name. The platform wallet pays Sepolia gas, and that EVM address keeps the name.
-            A live grant is one human, one ENS agent, this concert, one ticket, and a short expiry.
-            {data?.devMode ? " Dev mode also lets the swarm mint sandbox subjects." : ""}
+            The platform wallet pays Sepolia gas. A grant is one human, this show, one ticket.
           </p>
           {mintNote && <p className="toast">{mintNote}</p>}
           {worldNote && <p className="toast">{worldNote}</p>}
@@ -295,8 +309,8 @@ export function Dashboard() {
           </div>
           <p className="note">
             {data?.hosted
-              ? "The swarm runs here. A hosted launch uses up to 16 agents so it finishes inside the function limit."
-              : "The swarm buys through MCP. About 20% carry a fresh World ID grant. The rest are duplicates, expired, scoped to another show, or have no human at all."}
+              ? "A hosted attack uses up to 16 agents."
+              : "About 20% carry a fresh grant."}
           </p>
           {attack && (attack.agents ?? 0) > 0 && (
             <p className="toast">
@@ -325,6 +339,33 @@ export function Dashboard() {
         </section>
 
         <aside className="panel">
+          <h2>Shows</h2>
+          {data && data.concerts.length > 0 ? (
+            <ul className="shows">
+              {data.concerts.map((item) => {
+                const status = saleStatus(item);
+                return (
+                  <li key={item.id}>
+                    <button
+                      type="button"
+                      className={item.id === concert?.id ? "active" : ""}
+                      onClick={() => setSelected(item.id)}
+                    >
+                      <strong>{item.name}</strong>
+                      <span>
+                        {item.venue} · {item.sold}/{item.supply} · {status}
+                      </span>
+                      <span>
+                        {when(item.saleStartsAt ?? item.createdAt ?? item.saleEndsAt)} → {when(item.saleEndsAt)}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <p className="note">{loadError || (data ? "No concerts yet." : "Loading concerts…")}</p>
+          )}
           <h2>Gate</h2>
           <div className="counts">
             <div><strong>{counts.PURCHASE_COMPLETE}</strong><span className="ok">purchased</span></div>
@@ -342,7 +383,7 @@ export function Dashboard() {
           <ul className="feed">
             {history.map((attempt, index) => (
               <li key={attempt.id}>
-                {attempt.avatarUrl ? <img src={attempt.avatarUrl} alt="" /> : <span className="ph" />}
+                <EnsHead name={attempt.ensName} />
                 <div>
                   <strong>
                     {index + 1}. {attempt.ensName}
@@ -362,6 +403,17 @@ export function Dashboard() {
   );
 }
 
+function EnsHead({ name }: { name: string }) {
+  return (
+    <svg className="ens-head" viewBox="0 0 128 128" aria-hidden="true">
+      <circle cx="64" cy="64" r="64" fill={ensColor(name)} />
+      {ENS_MARK_PATHS.map((path) => (
+        <path key={path.slice(0, 24)} d={path} fill="#f7f4ee" />
+      ))}
+    </svg>
+  );
+}
+
 function countOutcomes(attempts: Attempt[]) {
   return {
     PURCHASE_COMPLETE: attempts.filter((item) => item.outcome === "PURCHASE_COMPLETE").length,
@@ -369,6 +421,23 @@ function countOutcomes(attempts: Attempt[]) {
     WORLD_ID_NOT_DETECTED: attempts.filter((item) => item.outcome === "WORLD_ID_NOT_DETECTED").length,
     PURCHASE_DENIED: attempts.filter((item) => item.outcome === "PURCHASE_DENIED").length,
   };
+}
+
+function when(at: number) {
+  return new Date(at).toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function saleStatus(concert: Concert) {
+  const now = Date.now();
+  const start = concert.saleStartsAt ?? concert.createdAt ?? 0;
+  if (now < start) return "upcoming";
+  if (now > concert.saleEndsAt) return "ended";
+  return "on sale";
 }
 
 function clock(at: number) {
