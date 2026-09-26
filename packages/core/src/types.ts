@@ -18,14 +18,20 @@ export type Concert = {
   saleEndsAt: number;
   createdAt: number;
   suiPoolId?: string;
+  suiPoolError?: string;
 };
 
 export type Agent = {
   ensName: string;
   address?: string;
+  evmAddress?: string;
+  suiAddress?: string;
   avatarUrl: string;
   records: Record<string, string>;
   chainWrite: "written" | "skipped" | "failed";
+  ensMint?: "minted" | "owned" | "skipped" | "failed";
+  ensMintTx?: string;
+  ensMintError?: string;
   createdAt: number;
 };
 
@@ -52,6 +58,7 @@ export type Attempt = {
   reason: string;
   ticketHash?: string;
   suiObjectId?: string;
+  suiAddress?: string;
   settlement: "sui" | "simulated" | "none";
   settlementError?: string;
   ensRecordKey?: string;

@@ -22,6 +22,7 @@ type Attempt = Racer & {
   outcome: Outcome;
   reason: string;
   ticketHash?: string;
+  suiObjectId?: string;
   settlement: string;
   at: number;
 };
@@ -29,9 +30,19 @@ type Attempt = Racer & {
 type Snapshot = {
   devMode: boolean;
   hosted?: boolean;
+  mcp?: boolean;
+  mcpUrl?: string;
   concerts: Concert[];
   attempts: Attempt[];
   grants: { id: string }[];
+};
+
+type AttackSummary = {
+  agents?: number;
+  PURCHASE_COMPLETE?: number;
+  IDENTITY_ALREADY_USED?: number;
+  WORLD_ID_NOT_DETECTED?: number;
+  PURCHASE_DENIED?: number;
 };
 
 const emptyForm = {
@@ -52,6 +63,9 @@ export function Dashboard() {
   const [agents, setAgents] = useState("50");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const [attack, setAttack] = useState<AttackSummary | null>(null);
+  const [mintNote, setMintNote] = useState("");
+  const [replay, setReplay] = useState(0);
 
   useEffect(() => {
     let stop = false;
@@ -84,12 +98,14 @@ export function Dashboard() {
     () => (data?.attempts ?? []).filter((attempt) => !concert || attempt.concertId === concert.id),
     [data, concert],
   );
+  const history = useMemo(() => [...attempts].sort((a, b) => a.at - b.at), [attempts]);
   const counts = countOutcomes(attempts);
 
   async function createConcert(event: React.FormEvent) {
     event.preventDefault();
     setBusy("create");
     setError("");
+    setAttack(null);
     const response = await fetch("/api/concerts", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -108,6 +124,7 @@ export function Dashboard() {
     if (!concert) return;
     setBusy("attack");
     setError("");
+    setAttack(null);
     const response = await fetch("/api/attack", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -115,7 +132,35 @@ export function Dashboard() {
     });
     const body = await response.json();
     setBusy("");
-    if (!response.ok) setError(body.error || "The swarm did not start.");
+    if (!response.ok) {
+      setError(body.error || "The swarm did not start.");
+      return;
+    }
+    setAttack(body.summary ?? null);
+  }
+
+  async function mintEns() {
+    setBusy("mint");
+    setError("");
+    setMintNote("");
+    const response = await fetch("/api/ens", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ensName }),
+    });
+    const body = await response.json();
+    setBusy("");
+    if (!response.ok) {
+      setError(body.error || "ENS mint failed.");
+      return;
+    }
+    if (body.ensMintError) {
+      setMintNote(body.evmAddress ? `EVM wallet ${body.evmAddress} is ready for ${body.ensName}.` : "");
+      setError(body.ensMintError);
+      return;
+    }
+    const owned = body.ensMint === "owned" ? "already owns" : "owns";
+    setMintNote(`${body.evmAddress} ${owned} ${body.ensName}. The platform wallet paid the gas.`);
   }
 
   function verifyHuman() {
@@ -173,18 +218,29 @@ export function Dashboard() {
               </label>
             </div>
             <div className="actions">
-              <button className="primary" disabled={busy === "create"}>
+              <button
+                className="primary"
+                disabled={busy === "create" || (data?.hosted === false && data.mcp === false)}
+              >
                 {busy === "create" ? "Creating…" : "Create concert"}
               </button>
             </div>
           </form>
+          <p className="note">
+            {!data
+              ? "Checking the MCP server…"
+              : data.hosted
+                ? `Agents connect at ${data.mcpUrl}. Concerts, wallets, and tickets stay on this deployment.`
+                : data.mcp
+                  ? "MCP is live. This form opens the concert through the MCP server."
+                  : "MCP is offline. Start pnpm dev before creating a concert."}
+          </p>
           {data && data.concerts.length > 0 && (
             <label>
               Watching
               <select
                 value={concert?.id ?? ""}
                 onChange={(event) => setSelected(event.target.value)}
-                style={{ background: "#0e0c0a", border: "1px solid rgba(240,214,176,0.16)", borderRadius: 12, padding: "10px 12px" }}
               >
                 {data.concerts.map((item) => (
                   <option key={item.id} value={item.id}>
@@ -207,14 +263,19 @@ export function Dashboard() {
             <input value={ensName} onChange={(event) => setEnsName(event.target.value)} />
           </label>
           <div className="actions">
+            <button className="ghost" type="button" onClick={mintEns} disabled={busy === "mint"}>
+              {busy === "mint" ? "Minting…" : "Mint ENS"}
+            </button>
             <button className="ghost" type="button" onClick={verifyHuman} disabled={!concert}>
               Verify human with World ID
             </button>
           </div>
           <p className="note">
+            Mint creates an EVM wallet for this name. The platform wallet pays Sepolia gas, and that EVM address keeps the name.
             A live grant is one human, one ENS agent, this concert, one ticket, and a short expiry.
             {data?.devMode ? " Dev mode also lets the swarm mint sandbox subjects." : ""}
           </p>
+          {mintNote && <p className="toast">{mintNote}</p>}
           {worldNote && <p className="toast">{worldNote}</p>}
 
           <h2>Swarm</h2>
@@ -227,16 +288,23 @@ export function Dashboard() {
               className="primary"
               type="button"
               onClick={launchAttack}
-              disabled={!concert || busy === "attack" || data?.hosted}
+              disabled={!concert || busy === "attack" || (!data?.hosted && data?.mcp === false)}
             >
               {busy === "attack" ? "Racing…" : "Launch attack"}
             </button>
           </div>
           <p className="note">
             {data?.hosted
-              ? "This deployment shows a finished swarm. Run pnpm simulate locally to send a new one through the MCP server."
-              : "About 20% carry a fresh World ID grant. The rest are duplicates, expired, scoped to another show, or have no human at all."}
+              ? "The swarm runs here. A hosted launch uses up to 16 agents so it finishes inside the function limit."
+              : "The swarm buys through MCP. About 20% carry a fresh World ID grant. The rest are duplicates, expired, scoped to another show, or have no human at all."}
           </p>
+          {attack && (attack.agents ?? 0) > 0 && (
+            <p className="toast">
+              {attack.agents ?? 0} agents · {attack.PURCHASE_COMPLETE ?? 0} purchased ·{" "}
+              {attack.IDENTITY_ALREADY_USED ?? 0} already used · {attack.WORLD_ID_NOT_DETECTED ?? 0} undetected ·{" "}
+              {attack.PURCHASE_DENIED ?? 0} denied
+            </p>
+          )}
           {error && <p className="error">{error}</p>}
         </aside>
 
@@ -248,7 +316,8 @@ export function Dashboard() {
             <li className="deny">denied</li>
           </ul>
           <RaceCanvas
-            racers={attempts}
+            key={`${concert?.id ?? "pool"}-${replay}`}
+            racers={history}
             sold={concert?.sold ?? 0}
             supply={concert?.supply ?? 0}
             title={concert?.name ?? "Ticket pool"}
@@ -263,19 +332,26 @@ export function Dashboard() {
             <div><strong>{counts.WORLD_ID_NOT_DETECTED}</strong><span className="miss">undetected</span></div>
             <div><strong>{counts.PURCHASE_DENIED}</strong><span className="deny">denied</span></div>
           </div>
+          <div className="history-bar">
+            <h2>Sale history</h2>
+            <button className="ghost" type="button" onClick={() => setReplay((value) => value + 1)} disabled={history.length === 0}>
+              Replay sale
+            </button>
+          </div>
+          <p className="note">Saved attempts for this concert, in the order they happened. Replay runs that record again.</p>
           <ul className="feed">
-            {attempts.slice(0, 18).map((attempt) => (
+            {history.map((attempt, index) => (
               <li key={attempt.id}>
                 {attempt.avatarUrl ? <img src={attempt.avatarUrl} alt="" /> : <span className="ph" />}
                 <div>
-                  <strong>{attempt.ensName}</strong>
+                  <strong>
+                    {index + 1}. {attempt.ensName}
+                  </strong>
                   <em className={tone(attempt.outcome)}>{attempt.outcome}</em>
                   <p>{attempt.reason}</p>
-                  {attempt.ticketHash && (
-                    <code>
-                      {attempt.settlement} · {attempt.ticketHash.slice(0, 16)}
-                    </code>
-                  )}
+                  <code>
+                    {clock(attempt.at)} · {settlementLabel(attempt)}
+                  </code>
                 </div>
               </li>
             ))}
@@ -293,6 +369,17 @@ function countOutcomes(attempts: Attempt[]) {
     WORLD_ID_NOT_DETECTED: attempts.filter((item) => item.outcome === "WORLD_ID_NOT_DETECTED").length,
     PURCHASE_DENIED: attempts.filter((item) => item.outcome === "PURCHASE_DENIED").length,
   };
+}
+
+function clock(at: number) {
+  return new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function settlementLabel(attempt: Attempt) {
+  if (attempt.settlement === "sui" && attempt.suiObjectId) return `sui ${attempt.suiObjectId.slice(0, 10)}`;
+  if (attempt.settlement === "simulated") return "simulated";
+  if (attempt.settlement === "none") return "no payment";
+  return attempt.settlement;
 }
 
 function tone(outcome: Outcome) {

@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { seedState } from "./seed";
+import { readJson, withJson } from "./json-store";
 import type { State } from "./types";
 
 const EMPTY: State = { concerts: [], agents: [], grants: [], attempts: [] };
@@ -17,68 +17,26 @@ export function repoRoot(): string {
   return process.cwd();
 }
 
-function dataDir() {
-  if (process.env.REALCLANKER_DATA) return process.env.REALCLANKER_DATA;
-  if (process.env.VERCEL) return path.join("/tmp", "realclanker");
-  return path.join(repoRoot(), ".data");
-}
-
-function locations() {
-  const dir = dataDir();
-  fs.mkdirSync(dir, { recursive: true });
+function normalize(parsed: Partial<State> | null | undefined): State {
   return {
-    file: path.join(dir, "state.json"),
-    lock: path.join(dir, ".lock"),
+    concerts: parsed?.concerts ?? [],
+    agents: parsed?.agents ?? [],
+    grants: parsed?.grants ?? [],
+    attempts: parsed?.attempts ?? [],
   };
 }
 
-function blankState(): State {
-  return process.env.VERCEL ? structuredClone(seedState) : structuredClone(EMPTY);
+export async function readState(): Promise<State> {
+  return normalize(await readJson<State>("state.json", EMPTY));
 }
 
-function readFile(file: string): State {
-  if (!fs.existsSync(file)) return blankState();
-  try {
-    const parsed = JSON.parse(fs.readFileSync(file, "utf8")) as State;
-    return {
-      concerts: parsed.concerts ?? [],
-      agents: parsed.agents ?? [],
-      grants: parsed.grants ?? [],
-      attempts: parsed.attempts ?? [],
-    };
-  } catch {
-    return blankState();
-  }
-}
-
-function sleep(ms: number) {
-  const end = Date.now() + ms;
-  while (Date.now() < end) {
-    /* serialize cross-process writers */
-  }
-}
-
-export function readState(): State {
-  return readFile(locations().file);
-}
-
-export function withState<T>(mutate: (state: State) => T): T {
-  const { file, lock } = locations();
-  for (let attempt = 0; attempt < 400; attempt++) {
-    try {
-      fs.mkdirSync(lock);
-    } catch {
-      sleep(10);
-      continue;
-    }
-    try {
-      const state = readFile(file);
-      const result = mutate(state);
-      fs.writeFileSync(file, JSON.stringify(state, null, 2));
-      return result;
-    } finally {
-      fs.rmSync(lock, { recursive: true, force: true });
-    }
-  }
-  throw new Error("Could not lock RealClanker state");
+export async function withState<T>(mutate: (state: State) => T): Promise<T> {
+  return withJson("state.json", EMPTY, (draft) => {
+    const state = normalize(draft);
+    draft.concerts = state.concerts;
+    draft.agents = state.agents;
+    draft.grants = state.grants;
+    draft.attempts = state.attempts;
+    return mutate(draft);
+  });
 }

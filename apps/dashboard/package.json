@@ -8,7 +8,10 @@
     "start": "next start --port 3000"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.18.1",
+    "@realclanker/attack-simulator": "workspace:*",
     "@realclanker/core": "workspace:*",
+    "@realclanker/mcp": "workspace:*",
     "@realclanker/runtime": "workspace:*",
     "@realclanker/worldid": "workspace:*",
     "next": "^15.5.4",

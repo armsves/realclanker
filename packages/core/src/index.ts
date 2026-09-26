@@ -1,4 +1,5 @@
 export { decide } from "./decide";
+export { readJson, withJson } from "./json-store";
 export { readState, repoRoot, withState } from "./store";
 export type {
   Agent,

@@ -1,4 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
+import { keypairFromSecret, executeSigned, sharedObject, treasuryLock } from "./wallets";
+
+export { ensureAgentWallet, fundAgentWallet, fundFromFaucet, suiBalance, waitForBalance, TICKET_GAS_RESERVE } from "./wallets";
 
 export function ticketHash(input: {
   concertId: string;
@@ -29,25 +32,18 @@ export async function createPool(input: {
 }): Promise<{ poolId?: string; error?: string }> {
   if (!suiConfigured()) return {};
   try {
-    const { client, keypair, packageId } = await suiContext();
-    const { Transaction } = await import("@mysten/sui/transactions");
-    const tx = new Transaction();
-    tx.moveCall({
-      target: `${packageId}::tickets::create_pool`,
-      arguments: [tx.pure.u64(input.supply), tx.pure.u64(input.priceMist)],
-    });
-    const result = await client.signAndExecuteTransaction({
-      signer: keypair,
-      transaction: tx,
-      options: { showObjectChanges: true },
-    });
-    const created = result.objectChanges?.find(
-      (change) => change.type === "created" && change.objectType?.includes("::tickets::Pool"),
+    const { keypair, packageId } = await suiContext();
+    const result = await treasuryLock(() =>
+      executeSigned(keypair, (tx) => {
+        tx.moveCall({
+          target: `${packageId}::tickets::create_pool`,
+          arguments: [tx.pure.u64(input.supply), tx.pure.u64(input.priceMist)],
+        });
+      }),
     );
-    if (!created || created.type !== "created") {
-      return { error: "Pool object was not created." };
-    }
-    return { poolId: created.objectId };
+    const poolId = result.objects.find((object) => object.type?.includes("::tickets::Pool"))?.id;
+    if (!poolId) return { error: "Pool object was not created." };
+    return { poolId };
   } catch (error) {
     return { error: error instanceof Error ? error.message : "Sui pool creation failed." };
   }
@@ -60,6 +56,7 @@ export async function settleTicket(input: {
   worldIdSub: string;
   priceMist: bigint;
   hash: string;
+  payerSecret?: string;
 }): Promise<SettlementResult> {
   if (!suiConfigured() || !input.poolId) {
     return {
@@ -69,34 +66,29 @@ export async function settleTicket(input: {
     };
   }
   try {
-    const { client, keypair, packageId } = await suiContext();
-    const { Transaction } = await import("@mysten/sui/transactions");
-    const tx = new Transaction();
-    const [coin] = tx.splitCoins(tx.gas, [tx.pure.u64(input.priceMist)]);
-    const [ticket, change] = tx.moveCall({
-      target: `${packageId}::tickets::buy`,
-      arguments: [
-        tx.object(input.poolId),
-        coin,
-        tx.pure.vector("u8", [...Buffer.from(input.concertId)]),
-        tx.pure.vector("u8", [...Buffer.from(input.ensName)]),
-        tx.pure.vector("u8", [...Buffer.from(input.worldIdSub)]),
-        tx.pure.vector("u8", [...Buffer.from(input.hash)]),
-      ],
+    const { keypair, packageId } = await suiContext();
+    const payer = input.payerSecret ? await keypairFromSecret(input.payerSecret) : keypair;
+    const pool = await sharedObject(input.poolId);
+    const result = await executeSigned(payer, (tx) => {
+      const [coin] = tx.splitCoins(tx.gas, [tx.pure.u64(input.priceMist)]);
+      const [ticket, change] = tx.moveCall({
+        target: `${packageId}::tickets::buy`,
+        arguments: [
+          tx.sharedObjectRef(pool),
+          coin,
+          tx.pure.vector("u8", [...Buffer.from(input.concertId)]),
+          tx.pure.vector("u8", [...Buffer.from(input.ensName)]),
+          tx.pure.vector("u8", [...Buffer.from(input.worldIdSub)]),
+          tx.pure.vector("u8", [...Buffer.from(input.hash)]),
+        ],
+      });
+      tx.transferObjects([ticket, change], payer.toSuiAddress());
     });
-    tx.transferObjects([ticket, change], keypair.toSuiAddress());
-    const result = await client.signAndExecuteTransaction({
-      signer: keypair,
-      transaction: tx,
-      options: { showObjectChanges: true },
-    });
-    const minted = result.objectChanges?.find(
-      (change) => change.type === "created" && change.objectType?.includes("::tickets::Ticket"),
-    );
+    const objectId = result.objects.find((object) => object.type?.includes("::tickets::Ticket"))?.id;
     return {
       mode: "sui",
       ticketHash: input.hash,
-      objectId: minted && minted.type === "created" ? minted.objectId : undefined,
+      objectId,
       digest: result.digest,
     };
   } catch (error) {
@@ -110,15 +102,15 @@ export async function settleTicket(input: {
 }
 
 async function suiContext() {
-  const [{ SuiClient, getFullnodeUrl }, { Ed25519Keypair }, { decodeSuiPrivateKey }] =
-    await Promise.all([
-      import("@mysten/sui/client"),
-      import("@mysten/sui/keypairs/ed25519"),
-      import("@mysten/sui/cryptography"),
-    ]);
+  const { SuiGrpcClient } = await import("@mysten/sui/grpc");
   const network = (process.env.SUI_NETWORK || "testnet") as "testnet" | "devnet" | "mainnet";
-  const decoded = decodeSuiPrivateKey(process.env.SUI_PRIVATE_KEY!);
-  const keypair = Ed25519Keypair.fromSecretKey(decoded.secretKey);
-  const client = new SuiClient({ url: getFullnodeUrl(network) });
+  const baseUrl =
+    network === "mainnet"
+      ? "https://fullnode.mainnet.sui.io:443"
+      : network === "devnet"
+        ? "https://fullnode.devnet.sui.io:443"
+        : "https://fullnode.testnet.sui.io:443";
+  const keypair = await keypairFromSecret(process.env.SUI_PRIVATE_KEY!);
+  const client = new SuiGrpcClient({ network, baseUrl });
   return { client, keypair, packageId: process.env.SUI_PACKAGE_ID! };
 }

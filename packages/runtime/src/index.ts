@@ -14,30 +14,36 @@ import {
 import { decide } from "@realclanker/core";
 import {
   avatarDataUri,
+  ensureAgentEvmWallet,
+  ethBalance,
   grantRecordKey,
+  mintEns,
   resolveAgent,
   ticketRecordKey,
   writeTextRecord,
 } from "@realclanker/ens";
-import { createPool, settleTicket, ticketHash } from "@realclanker/settlement";
+import { createPool, ensureAgentWallet, fundAgentWallet, fundFromFaucet, settleTicket, suiBalance, suiConfigured, ticketHash, TICKET_GAS_RESERVE, waitForBalance } from "@realclanker/settlement";
 import { devMode, verifyIdToken } from "@realclanker/worldid";
 
 config({ path: path.join(repoRoot(), ".env") });
 
 const nid = (prefix: string) => `${prefix}_${randomBytes(6).toString("hex")}`;
 
-export function snapshot(): State & { devMode: boolean; hosted: boolean } {
-  return { ...readState(), devMode: devMode(), hosted: Boolean(process.env.VERCEL) };
+export async function snapshot(): Promise<State & { devMode: boolean; hosted: boolean; mcpUrl: string }> {
+  const mcpUrl = process.env.VERCEL_URL
+    ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL || process.env.VERCEL_URL}/api/mcp`
+    : process.env.MCP_URL || "http://127.0.0.1:8787/mcp";
+  return { ...(await readState()), devMode: devMode(), hosted: Boolean(process.env.VERCEL), mcpUrl };
 }
 
-export function createConcert(input: {
+export async function createConcert(input: {
   name: string;
   venue: string;
   supply: number;
   priceMist: string;
   maxPerHuman: number;
   saleEndsAt: number;
-}): Concert {
+}): Promise<Concert> {
   const concert: Concert = {
     id: nid("show"),
     name: input.name.trim(),
@@ -52,48 +58,154 @@ export function createConcert(input: {
   if (!concert.name || concert.supply < 1 || concert.maxPerHuman < 1) {
     throw new Error("Concert needs a name, supply, and a per-human cap.");
   }
-  withState((state) => {
+  await withState((state) => {
     state.concerts.unshift(concert);
   });
-  void createPool({
+  const created = await createPool({
     supply: concert.supply,
     priceMist: BigInt(concert.priceMist),
-  }).then((created) => {
-    if (!created.poolId && !created.error) return;
-    withState((state) => {
+  });
+  if (created.poolId) concert.suiPoolId = created.poolId;
+  if (created.error) concert.suiPoolError = created.error;
+  if (created.poolId || created.error) {
+    await withState((state) => {
       const found = state.concerts.find((item) => item.id === concert.id);
       if (!found) return;
       if (created.poolId) found.suiPoolId = created.poolId;
+      if (created.error) found.suiPoolError = created.error;
     });
-  });
+  }
   return concert;
 }
 
-export async function registerAgent(ensName: string): Promise<Agent> {
+export async function registerAgent(
+  ensName: string,
+  options?: { mint?: boolean },
+): Promise<Agent & { minted: boolean }> {
   const name = ensName.trim().toLowerCase();
   if (!name.endsWith(".eth")) throw new Error("Agent identity must be an ENS name.");
   const profile =
     name.endsWith(".realclanker.eth") && process.env.ENS_RESOLVE_SYNTHETIC !== "true"
       ? { avatarUrl: avatarDataUri(name), address: undefined }
       : await resolveAgent(name);
-  return withState((state) => {
+  const evm = await ensureAgentEvmWallet(name);
+  const wallet = await ensureAgentWallet(name);
+  const mintedName = options?.mint ? await mintEns(name, evm.address) : undefined;
+  return await withState((state) => {
     const existing = state.agents.find((agent) => agent.ensName === name);
+    const minted = !existing;
+    const address = mintedName?.owner ?? profile.address ?? evm.address;
+    const ensMint = mintedName
+      ? mintedName.minted
+        ? "minted"
+        : mintedName.kind === "owned"
+          ? "owned"
+          : mintedName.error
+            ? "failed"
+            : "skipped"
+      : undefined;
     if (existing) {
       existing.avatarUrl = profile.avatarUrl;
-      existing.address = profile.address;
-      return existing;
+      existing.address = address;
+      existing.evmAddress = evm.address;
+      existing.suiAddress = wallet.suiAddress;
+      if (ensMint) existing.ensMint = ensMint;
+      if (mintedName?.txHash) existing.ensMintTx = mintedName.txHash;
+      if (mintedName?.error) existing.ensMintError = mintedName.error;
+      return { ...existing, minted };
     }
     const agent: Agent = {
       ensName: name,
-      address: profile.address,
+      address,
+      evmAddress: evm.address,
+      suiAddress: wallet.suiAddress,
       avatarUrl: profile.avatarUrl,
       records: {},
       chainWrite: "skipped",
+      ensMint,
+      ensMintTx: mintedName?.txHash,
+      ensMintError: mintedName?.error,
       createdAt: Date.now(),
     };
     state.agents.push(agent);
-    return agent;
+    return { ...agent, minted };
   });
+}
+
+export async function fundAgent(ensName: string): Promise<{
+  ensName: string;
+  suiAddress: string;
+  balanceMist: string;
+  source: "faucet" | "treasury" | "already-funded";
+  error?: string;
+}> {
+  const name = ensName.trim().toLowerCase();
+  if (!name.endsWith(".eth")) throw new Error("Agent identity must be an ENS name.");
+  const wallet = await ensureAgentWallet(name);
+  await withState((state) => {
+    const agent = state.agents.find((item) => item.ensName === name);
+    if (agent) agent.suiAddress = wallet.suiAddress;
+  });
+  const before = (await suiBalance(wallet.suiAddress)) ?? 0n;
+  if (before > 0n) {
+    return { ensName: name, suiAddress: wallet.suiAddress, balanceMist: before.toString(), source: "already-funded" };
+  }
+  const faucet = await fundFromFaucet(wallet.suiAddress);
+  const afterFaucet = faucet.ok ? await waitForBalance(wallet.suiAddress, 1n) : before;
+  if ((afterFaucet ?? 0n) > 0n) {
+    return {
+      ensName: name,
+      suiAddress: wallet.suiAddress,
+      balanceMist: (afterFaucet ?? 0n).toString(),
+      source: "faucet",
+    };
+  }
+  const topped = await fundAgentWallet(wallet.suiAddress, 200_000_000n);
+  if (topped.error) {
+    return {
+      ensName: name,
+      suiAddress: wallet.suiAddress,
+      balanceMist: "0",
+      source: "faucet",
+      error: faucet.error || topped.error,
+    };
+  }
+  const afterTreasury = (await waitForBalance(wallet.suiAddress, 1n)) ?? 0n;
+  return {
+    ensName: name,
+    suiAddress: wallet.suiAddress,
+    balanceMist: afterTreasury.toString(),
+    source: "treasury",
+    error: afterTreasury > 0n ? undefined : topped.error,
+  };
+}
+
+export async function agentWallet(ensName: string): Promise<{
+  ensName: string;
+  suiAddress: string;
+  balanceMist: string | null;
+  evmAddress: string;
+  ethBalanceWei: string | null;
+}> {
+  const name = ensName.trim().toLowerCase();
+  if (!name.endsWith(".eth")) throw new Error("Agent identity must be an ENS name.");
+  const evm = await ensureAgentEvmWallet(name);
+  const wallet = await ensureAgentWallet(name);
+  await withState((state) => {
+    const agent = state.agents.find((item) => item.ensName === name);
+    if (!agent) return;
+    agent.suiAddress = wallet.suiAddress;
+    agent.evmAddress = evm.address;
+  });
+  const balance = await suiBalance(wallet.suiAddress);
+  const eth = await ethBalance(evm.address);
+  return {
+    ensName: name,
+    suiAddress: wallet.suiAddress,
+    balanceMist: balance === null ? null : balance.toString(),
+    evmAddress: evm.address,
+    ethBalanceWei: eth === null ? null : eth.toString(),
+  };
 }
 
 export async function issueGrant(input: {
@@ -139,7 +251,7 @@ export async function issueGrant(input: {
     source,
   };
 
-  withState((state) => {
+  await withState((state) => {
     if (!state.concerts.some((concert) => concert.id === input.concertId) && source === "oidc") {
       throw new Error("Concert not found.");
     }
@@ -167,8 +279,8 @@ export async function issueGrant(input: {
       maxTickets: grant.maxTickets,
       expiresAt: grant.expiresAt,
     }),
-  }).then((result) => {
-    withState((state) => {
+  }).then(async (result) => {
+    await withState((state) => {
       const agent = state.agents.find((item) => item.ensName === ensName);
       if (!agent) return;
       agent.chainWrite = result.wrote ? "written" : agent.chainWrite;
@@ -181,9 +293,11 @@ export async function issueGrant(input: {
 export async function buyTicket(ensName: string, concertId: string): Promise<Attempt> {
   const name = ensName.trim().toLowerCase();
   const now = Date.now();
-  const reserved = withState((state) => {
+  const wallet = await ensureAgentWallet(name);
+  const reserved = await withState((state) => {
     const concert = state.concerts.find((item) => item.id === concertId);
     const agent = state.agents.find((item) => item.ensName === name);
+    if (agent) agent.suiAddress = wallet.suiAddress;
     const decision = decide({
       now,
       concertId,
@@ -207,6 +321,7 @@ export async function buyTicket(ensName: string, concertId: string): Promise<Att
       outcome: decision.outcome,
       reason: decision.reason,
       settlement: "none",
+      suiAddress: wallet.suiAddress,
       at: now,
     };
 
@@ -234,20 +349,37 @@ export async function buyTicket(ensName: string, concertId: string): Promise<Att
   });
 
   if (reserved.attempt.outcome === "PURCHASE_COMPLETE" && reserved.attempt.ticketHash && reserved.attempt.worldIdSub) {
-    const settled = await settleTicket({
-      poolId: reserved.poolId,
-      concertId,
-      ensName: name,
-      worldIdSub: reserved.attempt.worldIdSub,
-      priceMist: BigInt(reserved.priceMist),
-      hash: reserved.attempt.ticketHash,
-    });
+    let fundingError: string | undefined;
+    if (suiConfigured() && reserved.poolId) {
+      const need = BigInt(reserved.priceMist) + TICKET_GAS_RESERVE;
+      const balance = (await suiBalance(wallet.suiAddress)) ?? 0n;
+      if (balance < need) {
+        const funded = await fundAgentWallet(wallet.suiAddress, need - balance);
+        fundingError = funded.error;
+      }
+    }
+    const settled = fundingError
+      ? {
+          mode: "simulated" as const,
+          ticketHash: reserved.attempt.ticketHash,
+          objectId: `0xsim${reserved.attempt.ticketHash.slice(0, 16)}`,
+          error: fundingError,
+        }
+      : await settleTicket({
+          poolId: reserved.poolId,
+          concertId,
+          ensName: name,
+          worldIdSub: reserved.attempt.worldIdSub,
+          priceMist: BigInt(reserved.priceMist),
+          hash: reserved.attempt.ticketHash,
+          payerSecret: wallet.secretKey,
+        });
     const record = await writeTextRecord({
       ensName: name,
       key: ticketRecordKey(concertId),
       value: reserved.attempt.ticketHash,
     });
-    withState((state) => {
+    await withState((state) => {
       const attempt = state.attempts.find((item) => item.id === reserved.attempt.id);
       const agent = state.agents.find((item) => item.ensName === name);
       if (attempt) {

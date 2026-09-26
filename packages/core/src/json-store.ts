@@ -1,0 +1,124 @@
+import fs from "node:fs";
+import path from "node:path";
+import { BlobNotFoundError, BlobPreconditionFailedError, get, head, put } from "@vercel/blob";
+
+function repoRoot(): string {
+  if (process.env.REALCLANKER_ROOT) return process.env.REALCLANKER_ROOT;
+  let dir = process.cwd();
+  for (let i = 0; i < 8; i++) {
+    if (fs.existsSync(path.join(dir, "pnpm-workspace.yaml"))) return dir;
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return process.cwd();
+}
+
+function localPath(name: string) {
+  const dir = process.env.REALCLANKER_DATA
+    ? process.env.REALCLANKER_DATA
+    : process.env.VERCEL
+      ? path.join("/tmp", "realclanker")
+      : path.join(repoRoot(), ".data");
+  fs.mkdirSync(dir, { recursive: true });
+  return { file: path.join(dir, name), lock: path.join(dir, `.${name}.lock`) };
+}
+
+function onBlob() {
+  return Boolean(process.env.VERCEL && process.env.BLOB_READ_WRITE_TOKEN);
+}
+
+function blobPath(name: string) {
+  return `realclanker/${name}`;
+}
+
+async function readBlob<T>(name: string, fallback: T): Promise<T> {
+  try {
+    const downloaded = await get(blobPath(name), { access: "private", useCache: false });
+    if (!downloaded || downloaded.statusCode !== 200 || !downloaded.stream) return structuredClone(fallback);
+    return JSON.parse(await new Response(downloaded.stream).text()) as T;
+  } catch (error) {
+    if (error instanceof BlobNotFoundError) return structuredClone(fallback);
+    throw error;
+  }
+}
+
+function readLocal<T>(name: string, fallback: T): T {
+  const { file } = localPath(name);
+  if (!fs.existsSync(file)) return structuredClone(fallback);
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf8")) as T;
+  } catch {
+    return structuredClone(fallback);
+  }
+}
+
+export async function readJson<T>(name: string, fallback: T): Promise<T> {
+  return onBlob() ? readBlob(name, fallback) : readLocal(name, fallback);
+}
+
+export async function withJson<T, R>(name: string, fallback: T, mutate: (value: T) => R): Promise<R> {
+  if (onBlob()) return withBlob(name, fallback, mutate);
+  return withLocal(name, fallback, mutate);
+}
+
+function withLocal<T, R>(name: string, fallback: T, mutate: (value: T) => R): R {
+  const { file, lock } = localPath(name);
+  for (let attempt = 0; attempt < 400; attempt++) {
+    try {
+      fs.mkdirSync(lock);
+    } catch {
+      const end = Date.now() + 10;
+      while (Date.now() < end) {
+        /* another process is writing this file */
+      }
+      continue;
+    }
+    try {
+      const value = readLocal(name, fallback);
+      const result = mutate(value);
+      fs.writeFileSync(file, JSON.stringify(value, null, 2), { mode: 0o600 });
+      return result;
+    } finally {
+      fs.rmSync(lock, { recursive: true, force: true });
+    }
+  }
+  throw new Error(`Could not store ${name}.`);
+}
+
+function blobConflict(error: unknown): boolean {
+  if (error instanceof BlobPreconditionFailedError) return true;
+  const message = error instanceof Error ? error.message : "";
+  return /conditional request|conflicting operation|precondition failed|etag mismatch/i.test(message);
+}
+
+async function withBlob<T, R>(name: string, fallback: T, mutate: (value: T) => R): Promise<R> {
+  const pathname = blobPath(name);
+  for (let attempt = 0; attempt < 24; attempt++) {
+    let etag: string | undefined;
+    let value = structuredClone(fallback);
+    try {
+      const meta = await head(pathname);
+      etag = meta.etag;
+      value = await readBlob(name, fallback);
+    } catch (error) {
+      if (!(error instanceof BlobNotFoundError)) throw error;
+    }
+    const result = mutate(value);
+    try {
+      await put(pathname, JSON.stringify(value), {
+        access: "private",
+        addRandomSuffix: false,
+        allowOverwrite: true,
+        contentType: "application/json",
+        cacheControlMaxAge: 0,
+        ...(etag ? { ifMatch: etag } : {}),
+      });
+      return result;
+    } catch (error) {
+      if (!blobConflict(error) || attempt === 23) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 40 * attempt + Math.floor(Math.random() * 80)));
+    }
+  }
+  throw new Error(`Could not store ${name}.`);
+}

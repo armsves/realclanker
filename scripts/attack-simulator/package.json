@@ -3,11 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "exports": {
+    "./swarm": "./src/swarm.ts"
+  },
   "scripts": {
     "start": "tsx src/run.ts"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.18.1"
+    "@modelcontextprotocol/sdk": "^1.18.1",
+    "@realclanker/runtime": "workspace:*"
   },
   "devDependencies": {
     "tsx": "^4.20.5"

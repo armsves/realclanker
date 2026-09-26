@@ -10,3 +10,4 @@ contracts/build
 .vercel
 coverage
 .DS_Store
+.env*.local

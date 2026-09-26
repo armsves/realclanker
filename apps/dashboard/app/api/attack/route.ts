@@ -1,57 +1,23 @@
-import { spawn } from "node:child_process";
-import { repoRoot } from "@realclanker/core";
 import { devAuthorized } from "@realclanker/runtime";
+import { runSwarm } from "@realclanker/attack-simulator/swarm";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 export async function POST(request: Request) {
-  if (process.env.VERCEL) {
-    return Response.json(
-      {
-        error:
-          "The swarm runs on your machine, next to the MCP server. Clone the repo and use pnpm simulate.",
-      },
-      { status: 501 },
-    );
-  }
   if (!devAuthorized()) {
     return Response.json({ error: "The attack simulator is disabled." }, { status: 403 });
   }
   const body = (await request.json()) as { concertId?: string; agents?: number };
   const concertId = String(body.concertId ?? "");
-  const agents = Math.max(4, Math.min(80, Number(body.agents) || 50));
+  const requested = Math.max(4, Math.min(80, Number(body.agents) || 12));
+  const agents = process.env.VERCEL ? Math.min(requested, 16) : requested;
   if (!concertId) return Response.json({ error: "Pick a concert first." }, { status: 400 });
-
-  const child = spawn(
-    "pnpm",
-    [
-      "--filter",
-      "@realclanker/attack-simulator",
-      "start",
-      "--",
-      "--agents",
-      String(agents),
-      "--concert",
-      concertId,
-    ],
-    { cwd: repoRoot() },
-  );
-
-  let output = "";
-  child.stdout.on("data", (chunk) => {
-    output += String(chunk);
-  });
-  child.stderr.on("data", (chunk) => {
-    output += String(chunk);
-  });
-
-  const code = await new Promise<number>((resolve) => {
-    child.on("exit", (status) => resolve(status ?? 1));
-  });
-  if (code !== 0) {
-    return Response.json({ error: output.slice(-800) || "Simulator failed." }, { status: 500 });
+  try {
+    const summary = await runSwarm({ agents, concertId });
+    return Response.json({ ok: true, summary });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Simulator failed.";
+    return Response.json({ error: message }, { status: 500 });
   }
-  const summaryLine = output.split("\n").find((line) => line.startsWith("SUMMARY "));
-  const summary = summaryLine ? JSON.parse(summaryLine.slice("SUMMARY ".length)) : {};
-  return Response.json({ ok: true, summary });
 }

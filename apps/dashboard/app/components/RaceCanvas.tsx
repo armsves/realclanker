@@ -34,6 +34,9 @@ const COLOR: Record<Outcome, string> = {
   PURCHASE_DENIED: "#ff5d73",
 };
 
+const WORLD_MARK_PATH =
+  "M53.9 4.8C48.4 1.6 42.4 0 35.9 0C29.4 0 23.4 1.6 17.9 4.8C12.4 8 8 12.4 4.8 17.9C1.6 23.4 0 29.4 0 35.9C0 42.4 1.6 48.4 4.8 53.9C8 59.4 12.4 63.8 17.9 67C23.4 70.2 29.4 71.8 35.9 71.8C42.4 71.8 48.4 70.2 53.9 67C59.4 63.8 63.8 59.4 67 53.9C70.2 48.4 71.8 42.4 71.8 35.9C71.8 29.4 70.2 23.4 67 17.9C63.8 12.4 59.4 8 53.9 4.8ZM38.1 48.9C34 48.9 30.8 47.7 28.3 45.4C26.6 43.8 25.5 41.9 25 39.6H63.8C63.4 42.9 62.4 46 61 48.9H38.2H38.1ZM25 32.3C25.5 30.1 26.6 28.1 28.3 26.5C30.8 24.2 34 23 38.1 23H61C62.5 25.9 63.4 29 63.8 32.3H25ZM11.6 21.6C14.1 17.3 17.5 13.8 21.8 11.3C26.1 8.8 30.8 7.5 36 7.5C41.2 7.5 45.9 8.8 50.2 11.3C52.4 12.6 54.3 14.1 56.1 15.9H38C33.9 15.9 30.2 16.8 27 18.5C23.8 20.2 21.3 22.6 19.6 25.6C18.4 27.7 17.6 30 17.2 32.4H8.3C8.7 28.6 9.9 25 11.8 21.7L11.6 21.6ZM50.1 60.5C45.8 63 41.1 64.3 35.9 64.3C30.7 64.3 26 63 21.7 60.5C17.4 58 14 54.5 11.5 50.2C9.6 46.9 8.4 43.4 8 39.6H16.9C17.3 42 18.1 44.3 19.3 46.4C21.1 49.4 23.6 51.7 26.7 53.5C29.9 55.2 33.6 56.1 37.7 56.1H55.7C54 57.8 52.1 59.3 50 60.5H50.1Z";
+
 export function RaceCanvas({
   racers,
   sold,
@@ -76,11 +79,12 @@ export function RaceCanvas({
 
     const spawn = (racer: Racer) => {
       const rect = canvas.getBoundingClientRect();
+      const start = spawnPoint(rect.width, rect.height, swimmers.length);
       swimmers.push({
         ...racer,
-        x: 16 + Math.random() * 40,
-        y: 70 + Math.random() * Math.max(120, rect.height - 180),
-        angle: 0,
+        x: start.x,
+        y: start.y,
+        angle: start.angle,
         phase: Math.random() * Math.PI * 2,
         scale: 1,
         stage: "approach",
@@ -95,7 +99,7 @@ export function RaceCanvas({
       const fresh = racersRef.current.filter((racer) => !known.has(racer.id));
       fresh.forEach((racer, index) => {
         known.add(racer.id);
-        timers.push(window.setTimeout(() => spawn(racer), index * 70));
+        timers.push(window.setTimeout(() => spawn(racer), index * 160));
       });
     }, 200);
 
@@ -113,7 +117,7 @@ export function RaceCanvas({
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, width, height);
 
-      const egg = { x: width * 0.64, y: height * 0.44, r: Math.min(92, width * 0.12) };
+      const pool = { x: width * 0.64, y: height * 0.44, r: Math.min(92, width * 0.12) };
       const jail = { x: 16, y: height - 168, w: width - 32, h: 150 };
       const cols = Math.max(3, Math.floor((jail.w - 20) / 120));
 
@@ -130,37 +134,37 @@ export function RaceCanvas({
       ctx.fillStyle = "#f7c2cb";
       ctx.fillText("no grant · duplicate · expired", jail.x + 16, jail.y + 42);
 
-      const glow = ctx.createRadialGradient(egg.x, egg.y, 10, egg.x, egg.y, egg.r * 2.4);
-      glow.addColorStop(0, "rgba(255, 214, 120, 0.35)");
-      glow.addColorStop(1, "rgba(255, 214, 120, 0)");
+      const glow = ctx.createRadialGradient(pool.x, pool.y, 10, pool.x, pool.y, pool.r * 2.4);
+      glow.addColorStop(0, "rgba(244, 241, 234, 0.2)");
+      glow.addColorStop(1, "rgba(244, 241, 234, 0)");
       ctx.fillStyle = glow;
       ctx.beginPath();
-      ctx.arc(egg.x, egg.y, egg.r * 2.3, 0, Math.PI * 2);
+      ctx.arc(pool.x, pool.y, pool.r * 2.3, 0, Math.PI * 2);
       ctx.fill();
 
-      const yolk = ctx.createRadialGradient(egg.x - 18, egg.y - 22, 8, egg.x, egg.y, egg.r);
-      yolk.addColorStop(0, "#fff8e4");
-      yolk.addColorStop(0.42, "#ffd36a");
-      yolk.addColorStop(1, "#e07a2f");
-      ctx.fillStyle = yolk;
-      ctx.beginPath();
-      ctx.ellipse(egg.x, egg.y, egg.r * 0.76, egg.r, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = "rgba(255,255,255,0.55)";
-      ctx.stroke();
-      ctx.fillStyle = "#2a1608";
-      ctx.textAlign = "center";
-      ctx.font = "650 16px Fraunces, serif";
+      const scale = (pool.r * 2) / 71.8;
+      ctx.save();
+      ctx.translate(pool.x, pool.y);
+      ctx.scale(scale, scale);
+      ctx.translate(-35.9, -35.9);
+      ctx.fillStyle = "#f4f1ea";
+      ctx.fill(new Path2D(WORLD_MARK_PATH));
+      ctx.restore();
+
       const label = meta.current.title || "Ticket pool";
-      ctx.fillText(label.slice(0, 18), egg.x, egg.y - 6);
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#1a1208";
+      ctx.font = "650 15px Fraunces, serif";
+      ctx.fillText(label.slice(0, 16), pool.x, pool.y + 5);
+      ctx.fillStyle = "#f4f1ea";
       ctx.font = "12px 'IBM Plex Mono', monospace";
-      ctx.fillText(`${meta.current.sold}/${meta.current.supply || 0}`, egg.x, egg.y + 16);
+      ctx.fillText(`${meta.current.sold}/${meta.current.supply || 0}`, pool.x, pool.y + pool.r * 0.34);
       ctx.textAlign = "left";
 
       let jailCursor = 0;
       for (const swimmer of swimmers) {
         const before = swimmer.stage;
-        step(swimmer, egg, jail, cols, dt);
+        step(swimmer, pool, jail, cols, dt);
         if (before !== "jail" && before !== "jailed" && (swimmer.stage === "jail" || swimmer.stage === "jailed") && swimmer.jailIndex < 0) {
           swimmer.jailIndex = jailCursor;
         }
@@ -181,6 +185,28 @@ export function RaceCanvas({
   }, []);
 
   return <canvas ref={canvasRef} aria-label="Agents racing toward the ticket pool" />;
+}
+
+function spawnPoint(width: number, height: number, index: number) {
+  const cx = width * 0.64;
+  const cy = height * 0.44;
+  const outward = index * 2.399963229728653;
+  const ux = Math.cos(outward);
+  const uy = Math.sin(outward);
+  let reach = Number.POSITIVE_INFINITY;
+  if (ux > 0.02) reach = Math.min(reach, (width - 12 - cx) / ux);
+  if (ux < -0.02) reach = Math.min(reach, (12 - cx) / ux);
+  if (uy > 0.02) reach = Math.min(reach, (height - 12 - cy) / uy);
+  if (uy < -0.02) reach = Math.min(reach, (12 - cy) / uy);
+  const jailTop = height - 176;
+  if (uy > 0.02) reach = Math.min(reach, (jailTop - cy) / uy);
+  const dist = Math.max(96, Math.min(reach - 16, reach - 108));
+  const jitter = ((index * 17) % 11) - 5;
+  return {
+    x: cx + ux * dist - uy * jitter * 4,
+    y: cy + uy * dist + ux * jitter * 4,
+    angle: Math.atan2(-uy, -ux),
+  };
 }
 
 function step(
@@ -261,17 +287,6 @@ function drawSwimmer(
   ctx.translate(swimmer.x, swimmer.y);
   ctx.rotate(swimmer.angle);
   ctx.scale(swimmer.scale, swimmer.scale);
-  ctx.beginPath();
-  ctx.moveTo(-8, 0);
-  for (let i = 1; i <= 14; i++) {
-    const t = i / 14;
-    ctx.lineTo(-8 - t * 78, Math.sin(swimmer.phase + t * 7) * (3 + t * 8));
-  }
-  ctx.strokeStyle = color;
-  ctx.globalAlpha = 0.9;
-  ctx.lineWidth = 2;
-  ctx.stroke();
-  ctx.globalAlpha = 1;
   ctx.fillStyle = color;
   ctx.font = "11px 'IBM Plex Mono', monospace";
   ctx.textAlign = "right";
