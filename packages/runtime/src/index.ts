@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { config } from "dotenv";
 import {
+  deleteJson,
   readJson,
   readState,
   repoRoot,
@@ -143,6 +144,18 @@ export async function setConcertBackdrop(
     concert.backdrop = { contentType, updatedAt };
   });
   return { ...existing, backdrop: { contentType, updatedAt } };
+}
+
+export async function deleteConcert(concertId: string): Promise<void> {
+  const current = await readState();
+  if (!current.concerts.some((item) => item.id === concertId)) throw new Error("Concert not found.");
+  await withState((state) => {
+    state.concerts = state.concerts.filter((item) => item.id !== concertId);
+    state.grants = state.grants.filter((item) => item.concertId !== concertId);
+    state.attempts = state.attempts.filter((item) => item.concertId !== concertId);
+  });
+  await deleteJson(`art-${concertId}.json`);
+  await deleteJson(`backdrop-${concertId}.json`);
 }
 
 export async function readConcertBackdrop(concertId: string): Promise<{ contentType: string; bytes: Buffer } | null> {

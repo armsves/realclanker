@@ -261,6 +261,21 @@ export function Dashboard() {
     if (!response.ok) setError(payload.error || "Could not store the art.");
   }
 
+  async function removeConcert() {
+    if (!concert) return;
+    if (!window.confirm(`Delete ${concert.name}?`)) return;
+    setBusy("delete");
+    setError("");
+    const response = await fetch(`/api/concerts/${concert.id}`, { method: "DELETE" });
+    const payload = await response.json();
+    setBusy("");
+    if (!response.ok) {
+      setError(payload.error || "Could not delete the concert.");
+      return;
+    }
+    setSelected("");
+  }
+
   async function uploadBackdrop(file: File | undefined) {
     if (!concert || !file) return;
     setBusy("backdrop");
@@ -331,12 +346,32 @@ export function Dashboard() {
                 onChange={(event) => setForm({ ...form, saleEndsAt: event.target.value })}
               />
             </label>
+            <label>
+              Background video
+              <input
+                type="file"
+                accept="video/mp4,video/webm"
+                disabled={!concert || busy === "backdrop"}
+                onChange={(event) => setBackdropFile(event.target.files?.[0] ?? null)}
+              />
+            </label>
             <div className="actions">
+              <button
+                className="ghost"
+                type="button"
+                disabled={!concert || !backdropFile || busy === "backdrop"}
+                onClick={() => void uploadBackdrop(backdropFile ?? undefined)}
+              >
+                {busy === "backdrop" ? "Uploading…" : "Upload video"}
+              </button>
               <button
                 className="primary"
                 disabled={busy === "create" || (data?.hosted === false && data.mcp === false)}
               >
                 {busy === "create" ? "Creating…" : "Create concert"}
+              </button>
+              <button className="ghost" type="button" disabled={!concert || busy === "delete"} onClick={() => void removeConcert()}>
+                {busy === "delete" ? "Deleting…" : concert ? `Delete ${concert.name}` : "Delete concert"}
               </button>
             </div>
           </form>
@@ -399,26 +434,6 @@ export function Dashboard() {
         </aside>
 
         <section className="stage">
-          <form
-            className="video-bar"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void uploadBackdrop(backdropFile ?? undefined);
-            }}
-          >
-            <label>
-              Background video for {concert?.name ?? "this concert"}
-              <input
-                type="file"
-                accept="video/mp4,video/webm"
-                disabled={!concert || busy === "backdrop"}
-                onChange={(event) => setBackdropFile(event.target.files?.[0] ?? null)}
-              />
-            </label>
-            <button className="primary" type="submit" disabled={!concert || !backdropFile || busy === "backdrop"}>
-              {busy === "backdrop" ? "Uploading…" : "Upload video"}
-            </button>
-          </form>
           <ul className="legend">
             <li className="ok">cleared</li>
             <li className="used">identity used</li>

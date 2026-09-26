@@ -69,21 +69,6 @@ button { cursor: pointer; }
   flex-direction: column;
 }
 .stage { position: relative; overflow: hidden; display: flex; flex-direction: column; }
-.video-bar {
-  position: relative;
-  z-index: 4;
-  flex: none;
-  display: flex;
-  align-items: end;
-  gap: 8px;
-  margin: 10px 10px 0;
-  padding: 8px;
-  background: #14110c;
-  border: 1px solid var(--gold);
-  border-radius: 12px;
-}
-.video-bar label { flex: 1; margin: 0; color: var(--ink); font-size: 13px; }
-.video-bar button { flex: none; margin-bottom: 1px; }
 .stage-video {
   position: absolute;
   inset: 0;
@@ -153,7 +138,7 @@ button:disabled { opacity: 0.5; cursor: wait; }
   position: absolute;
   z-index: 3;
   left: 16px;
-  top: 96px;
+  top: 16px;
   display: flex;
   flex-wrap: wrap;
   gap: 8px;

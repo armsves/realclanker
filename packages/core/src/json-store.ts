@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { BlobNotFoundError, BlobPreconditionFailedError, get, head, put } from "@vercel/blob";
+import { BlobNotFoundError, BlobPreconditionFailedError, del, get, head, put } from "@vercel/blob";
 import Redis from "ioredis";
 
 function repoRoot(): string {
@@ -81,6 +81,27 @@ function readLocal<T>(name: string, fallback: T): T {
   } catch {
     return structuredClone(fallback);
   }
+}
+
+export async function deleteJson(name: string): Promise<void> {
+  cache.delete(name);
+  if (onRedis()) {
+    await enqueueRedisWrite(async () => {
+      cache.delete(name);
+      await redis().del(redisKey(name));
+    });
+    return;
+  }
+  if (onBlob()) {
+    try {
+      await del(blobPath(name));
+    } catch (error) {
+      if (!(error instanceof BlobNotFoundError)) throw error;
+    }
+    return;
+  }
+  const { file } = localPath(name);
+  if (fs.existsSync(file)) fs.unlinkSync(file);
 }
 
 export async function readJson<T>(name: string, fallback: T): Promise<T> {
