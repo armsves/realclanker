@@ -111,7 +111,7 @@ export async function registerAgent(
       existing.suiAddress = wallet.suiAddress;
       if (ensMint) existing.ensMint = ensMint;
       if (mintedName?.txHash) existing.ensMintTx = mintedName.txHash;
-      if (mintedName?.error) existing.ensMintError = mintedName.error;
+      if (mintedName) existing.ensMintError = mintedName.error;
       return { ...existing, minted };
     }
     const agent: Agent = {
