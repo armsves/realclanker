@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "realclanker": {
+      "type": "http",
+      "url": "https://realclanker.vercel.app/api/mcp"
+    }
+  }
+}
