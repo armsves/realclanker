@@ -31,10 +31,12 @@ function parentName() {
   return (process.env.ENS_PARENT_NAME || "realclanker.eth").trim().toLowerCase();
 }
 
+const RECORDS_RESOLVER_VERSION = 2;
+
 async function ensureRecordsResolver(): Promise<Address> {
   return enqueuePlatform(async () => {
-    const saved = await readJson("ens-resolver.json", {} as { address?: Address });
-    if (saved.address) return saved.address;
+    const saved = await readJson("ens-resolver.json", {} as { address?: Address; version?: number });
+    if (saved.address && saved.version === RECORDS_RESOLVER_VERSION) return saved.address;
     const account = platformAccount();
     const clients = sepoliaClients(account);
     if (!clients?.wallet) throw new Error("Sepolia writer is not configured.");
@@ -46,8 +48,9 @@ async function ensureRecordsResolver(): Promise<Address> {
     const receipt = await clients.publicClient.waitForTransactionReceipt({ hash });
     if (!receipt.contractAddress) throw new Error("Records resolver was not deployed.");
     const address = receipt.contractAddress;
-    await withJson("ens-resolver.json", {} as { address?: Address }, (file) => {
+    await withJson("ens-resolver.json", {} as { address?: Address; version?: number }, (file) => {
       file.address = address;
+      file.version = RECORDS_RESOLVER_VERSION;
     });
     return address;
   });
