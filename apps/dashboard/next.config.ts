@@ -16,7 +16,7 @@ const nextConfig: NextConfig = {
     "@realclanker/mcp",
     "@realclanker/attack-simulator",
   ],
-  serverExternalPackages: ["@mysten/sui", "viem", "@modelcontextprotocol/sdk", "@vercel/blob"],
+  serverExternalPackages: ["@mysten/sui", "viem", "@modelcontextprotocol/sdk", "@vercel/blob", "ioredis"],
   outputFileTracingRoot: root,
 };
 

@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { BlobNotFoundError, BlobPreconditionFailedError, get, head, put } from "@vercel/blob";
+import Redis from "ioredis";
 
 function repoRoot(): string {
   if (process.env.REALCLANKER_ROOT) return process.env.REALCLANKER_ROOT;
@@ -24,8 +25,37 @@ function localPath(name: string) {
   return { file: path.join(dir, name), lock: path.join(dir, `.${name}.lock`) };
 }
 
+function redisUrl() {
+  return process.env.REALCLANKER_REDIS_URL || process.env.realclanker_REDIS_URL || "";
+}
+
+function onRedis() {
+  return Boolean(redisUrl());
+}
+
 function onBlob() {
   return Boolean(process.env.VERCEL && process.env.BLOB_READ_WRITE_TOKEN);
+}
+
+const cache = new Map<string, { at: number; raw: string }>();
+const CACHE_MS = 1000;
+
+let redisClient: Redis | null = null;
+
+function redis() {
+  if (!redisClient) {
+    const url = redisUrl();
+    redisClient = new Redis(url, {
+      maxRetriesPerRequest: 2,
+      connectTimeout: 10_000,
+      tls: url.startsWith("rediss://") ? {} : undefined,
+    });
+  }
+  return redisClient;
+}
+
+function redisKey(name: string) {
+  return `realclanker:${name}`;
 }
 
 function blobPath(name: string) {
@@ -54,12 +84,48 @@ function readLocal<T>(name: string, fallback: T): T {
 }
 
 export async function readJson<T>(name: string, fallback: T): Promise<T> {
+  if (onRedis()) return readRedis(name, fallback);
   return onBlob() ? readBlob(name, fallback) : readLocal(name, fallback);
 }
 
 export async function withJson<T, R>(name: string, fallback: T, mutate: (value: T) => R): Promise<R> {
+  if (onRedis()) return withRedis(name, fallback, mutate);
   if (onBlob()) return withBlob(name, fallback, mutate);
   return withLocal(name, fallback, mutate);
+}
+
+async function readRedis<T>(name: string, fallback: T): Promise<T> {
+  const hit = cache.get(name);
+  if (hit && Date.now() - hit.at < CACHE_MS) return JSON.parse(hit.raw) as T;
+  const raw = await redis().get(redisKey(name));
+  if (!raw) return structuredClone(fallback);
+  cache.set(name, { at: Date.now(), raw });
+  return JSON.parse(raw) as T;
+}
+
+async function withRedis<T, R>(name: string, fallback: T, mutate: (value: T) => R): Promise<R> {
+  const client = redis();
+  const key = redisKey(name);
+  for (let attempt = 0; attempt < 24; attempt++) {
+    await client.watch(key);
+    try {
+      const raw = await client.get(key);
+      const value = raw ? (JSON.parse(raw) as T) : structuredClone(fallback);
+      const result = mutate(value);
+      const next = JSON.stringify(value);
+      const exec = await client.multi().set(key, next).exec();
+      if (!exec) {
+        await new Promise((resolve) => setTimeout(resolve, 20 * attempt));
+        continue;
+      }
+      cache.set(name, { at: Date.now(), raw: next });
+      return result;
+    } catch (error) {
+      await client.unwatch();
+      throw error;
+    }
+  }
+  throw new Error(`Could not store ${name}.`);
 }
 
 function withLocal<T, R>(name: string, fallback: T, mutate: (value: T) => R): R {
