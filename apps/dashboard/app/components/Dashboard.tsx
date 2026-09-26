@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { ENS_MARK_PATHS, ensColor } from "./ensMark";
-import { RaceCanvas, type Racer } from "./RaceCanvas";
+import { RaceCanvas, WORLD_MARK_PATH, type Racer } from "./RaceCanvas";
 
 type Outcome = Racer["outcome"];
 
@@ -125,6 +125,7 @@ export function Dashboard() {
   const [attack, setAttack] = useState<AttackSummary | null>(null);
   const [mintNote, setMintNote] = useState("");
   const [replay, setReplay] = useState(0);
+  const [tab, setTab] = useState<"feed" | "shows" | "proof">(() => (params.get("worldid") ? "proof" : "feed"));
 
   useEffect(() => {
     let stop = false;
@@ -300,154 +301,211 @@ export function Dashboard() {
         ? params.get("message") || "World ID verification did not complete."
         : "";
 
+  const mcpState = !data ? "checking" : data.hosted || data.mcp ? "live" : "offline";
+  const attackRunning = busy === "attack";
+  const feed = [...history].reverse();
+  const totalAttempts = attempts.length;
+
   return (
     <main className="shell">
       <header className="top">
         <div className="brand">
-          <h1 suppressHydrationWarning>RealClanker</h1>
-          <p>Agents may buy a ticket. Only a verified human may clear one.</p>
+          <img className="logo" src="/realclanker-logo.svg" alt="" width={40} height={40} />
+          <div>
+            <h1 suppressHydrationWarning>RealClanker</h1>
+            <p>Agents may buy a ticket. Only a verified human may clear one.</p>
+          </div>
         </div>
-        <p className="chain">Human → World ID → ENS v2 agent → MCP → Sui ticket</p>
+        <ol className="chain" aria-label="Trust path">
+          <li>Human</li>
+          <li>World ID</li>
+          <li>ENS v2 agent</li>
+          <li>MCP</li>
+          <li>Sui ticket</li>
+        </ol>
+        <p className={`status ${mcpState}`} title={data?.mcpUrl ?? undefined}>
+          <i />
+          MCP {mcpState === "checking" ? "checking" : mcpState}
+          {data?.devMode ? <span>sandbox</span> : null}
+        </p>
       </header>
+
       <section className="layout">
-        <aside className="panel">
-          <h2>Concert</h2>
-          <form onSubmit={createConcert}>
-            <label>
-              Name
-              <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
-            </label>
-            <label>
-              Venue
-              <input value={form.venue} onChange={(event) => setForm({ ...form, venue: event.target.value })} />
-            </label>
-            <div className="row2">
-              <label>
-                Supply
-                <input value={form.supply} onChange={(event) => setForm({ ...form, supply: event.target.value })} />
-              </label>
-              <label>
-                Price (SUI)
-                <input value={form.priceSui} onChange={(event) => setForm({ ...form, priceSui: event.target.value })} />
-              </label>
+        <aside className="panel controls">
+          <section className={`control-section launch-card${attackRunning ? " running" : ""}`}>
+            <div className="section-heading">
+              <h2>Swarm attack</h2>
+              <span className="step">01</span>
+            </div>
+            <p className="target">
+              <span>Target</span>
+              <strong>{concert?.name ?? "Create a concert first"}</strong>
+            </p>
+            <div className="swarm-size" role="group" aria-label="Agents in the swarm">
+              {["12", "24", "40"].map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  className={agents === value ? "on" : ""}
+                  aria-pressed={agents === value}
+                  onClick={() => setAgents(value)}
+                >
+                  {value}
+                </button>
+              ))}
+              <input
+                aria-label="Custom swarm size"
+                inputMode="numeric"
+                placeholder="custom"
+                value={["12", "24", "40"].includes(agents) ? "" : agents}
+                onChange={(event) => setAgents(event.target.value)}
+              />
+            </div>
+            <button
+              className={`launch${attackRunning ? " running" : ""}`}
+              type="button"
+              onClick={launchAttack}
+              disabled={!concert || attackRunning || (!data?.hosted && data?.mcp === false)}
+            >
+              <span className="launch-hazard" aria-hidden="true" />
+              <span className="launch-copy">
+                <strong>{attackRunning ? "Swarm in flight" : "Launch attack"}</strong>
+                <small>
+                  {agents || 0} agents → {concert?.name ?? "no concert"}
+                </small>
+              </span>
+              <span className="launch-icon" aria-hidden="true">
+                <SwarmIcon />
+              </span>
+              <span className="launch-progress" aria-hidden="true" />
+            </button>
+            <p className="note">
+              {data?.hosted ? "A hosted attack runs up to 40 agents." : "About 20% carry a fresh grant."}
+            </p>
+            {attack && (attack.agents ?? 0) > 0 && (
+              <ul className="result" aria-label="Last attack">
+                <li className="ok"><b>{attack.PURCHASE_COMPLETE ?? 0}</b>bought</li>
+                <li className="used"><b>{attack.IDENTITY_ALREADY_USED ?? 0}</b>duplicate</li>
+                <li className="miss"><b>{attack.WORLD_ID_NOT_DETECTED ?? 0}</b>no ID</li>
+                <li className="deny"><b>{attack.PURCHASE_DENIED ?? 0}</b>denied</li>
+              </ul>
+            )}
+            {error && <p className="error">{error}</p>}
+          </section>
+
+          <section className="control-section">
+            <div className="section-heading">
+              <h2>Delegate a human</h2>
+              <span className="step">02</span>
             </div>
             <label>
-              Max / human
-              <input value={form.maxPerHuman} onChange={(event) => setForm({ ...form, maxPerHuman: event.target.value })} />
-            </label>
-            <label>
-              Sale starts
-              <input
-                type="datetime-local"
-                value={form.saleStartsAt}
-                onChange={(event) => setForm({ ...form, saleStartsAt: event.target.value })}
-              />
-            </label>
-            <label>
-              Sale ends
-              <input
-                type="datetime-local"
-                value={form.saleEndsAt}
-                onChange={(event) => setForm({ ...form, saleEndsAt: event.target.value })}
-              />
-            </label>
-            <label>
-              Background video
-              <input
-                type="file"
-                accept="video/mp4,video/webm"
-                disabled={!concert || busy === "backdrop"}
-                onChange={(event) => setBackdropFile(event.target.files?.[0] ?? null)}
-              />
+              ENS v2 agent
+              <input value={ensName} onChange={(event) => setEnsName(event.target.value)} spellCheck={false} />
             </label>
             <div className="actions">
-              <button
-                className="ghost"
-                type="button"
-                disabled={!concert || !backdropFile || busy === "backdrop"}
-                onClick={() => void uploadBackdrop(backdropFile ?? undefined)}
-              >
-                {busy === "backdrop" ? "Uploading…" : "Upload video"}
+              <button className="world" type="button" onClick={verifyHuman} disabled={!concert}>
+                <svg viewBox="0 0 71.8 71.8" aria-hidden="true">
+                  <path d={WORLD_MARK_PATH} fill="currentColor" />
+                </svg>
+                Verify human with World ID
               </button>
+              <button className="ghost" type="button" onClick={mintEns} disabled={busy === "mint"}>
+                {busy === "mint" ? "Minting…" : "Mint ENS"}
+              </button>
+            </div>
+            <p className="note">
+              The platform wallet pays Sepolia gas. A grant is one human, this show, one ticket.
+            </p>
+            {mintNote && <p className="toast">{mintNote}</p>}
+            {worldNote && <p className="toast">{worldNote}</p>}
+          </section>
+
+          <details className="control-section setup" open={data ? data.concerts.length === 0 : false}>
+            <summary className="section-heading">
+              <h2>Concert setup</h2>
+              <span className="step">03</span>
+            </summary>
+            <form onSubmit={createConcert}>
+              <label>
+                Name
+                <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
+              </label>
+              <label>
+                Venue
+                <input value={form.venue} onChange={(event) => setForm({ ...form, venue: event.target.value })} />
+              </label>
+              <div className="row3">
+                <label>
+                  Supply
+                  <input value={form.supply} onChange={(event) => setForm({ ...form, supply: event.target.value })} />
+                </label>
+                <label>
+                  Price SUI
+                  <input value={form.priceSui} onChange={(event) => setForm({ ...form, priceSui: event.target.value })} />
+                </label>
+                <label>
+                  Max / human
+                  <input value={form.maxPerHuman} onChange={(event) => setForm({ ...form, maxPerHuman: event.target.value })} />
+                </label>
+              </div>
+              <label>
+                Sale starts
+                <input
+                  type="datetime-local"
+                  value={form.saleStartsAt}
+                  onChange={(event) => setForm({ ...form, saleStartsAt: event.target.value })}
+                />
+              </label>
+              <label>
+                Sale ends
+                <input
+                  type="datetime-local"
+                  value={form.saleEndsAt}
+                  onChange={(event) => setForm({ ...form, saleEndsAt: event.target.value })}
+                />
+              </label>
               <button
                 className="primary"
                 disabled={busy === "create" || (data?.hosted === false && data.mcp === false)}
               >
                 {busy === "create" ? "Creating…" : "Create concert"}
               </button>
-              <button className="ghost" type="button" disabled={!concert || busy === "delete"} onClick={() => void removeConcert()}>
+              <div className="file-row">
+                <label className={`file${!concert || busy === "backdrop" ? " off" : ""}`}>
+                  <span>{backdropFile ? backdropFile.name : "Stage video…"}</span>
+                  <input
+                    type="file"
+                    accept="video/mp4,video/webm"
+                    disabled={!concert || busy === "backdrop"}
+                    onChange={(event) => setBackdropFile(event.target.files?.[0] ?? null)}
+                  />
+                </label>
+                <button
+                  className="ghost"
+                  type="button"
+                  disabled={!concert || !backdropFile || busy === "backdrop"}
+                  onClick={() => void uploadBackdrop(backdropFile ?? undefined)}
+                >
+                  {busy === "backdrop" ? "Uploading…" : "Upload"}
+                </button>
+              </div>
+              <button className="ghost danger" type="button" disabled={!concert || busy === "delete"} onClick={() => void removeConcert()}>
                 {busy === "delete" ? "Deleting…" : concert ? `Delete ${concert.name}` : "Delete concert"}
               </button>
-            </div>
-          </form>
-          <p className="note">
-            {!data
-              ? "Checking the MCP server…"
-              : data.hosted
-                ? `Agents connect at ${data.mcpUrl}.`
-                : data.mcp
-                  ? "MCP is live."
-                  : "MCP is offline. Start pnpm dev before creating a concert."}
-          </p>
-          <h2>Delegate</h2>
-          <label>
-            ENS v2 agent
-            <input value={ensName} onChange={(event) => setEnsName(event.target.value)} />
-          </label>
-          <div className="actions">
-            <button className="ghost" type="button" onClick={mintEns} disabled={busy === "mint"}>
-              {busy === "mint" ? "Minting…" : "Mint ENS"}
-            </button>
-            <button className="ghost" type="button" onClick={verifyHuman} disabled={!concert}>
-              Verify human with World ID
-            </button>
-          </div>
-          <p className="note">
-            The platform wallet pays Sepolia gas. A grant is one human, this show, one ticket.
-          </p>
-          {mintNote && <p className="toast">{mintNote}</p>}
-          {worldNote && <p className="toast">{worldNote}</p>}
-
-          <h2>Swarm</h2>
-          <label>
-            Agents
-            <input value={agents} onChange={(event) => setAgents(event.target.value)} />
-          </label>
-          <div className="actions">
-            <button
-              className="primary"
-              type="button"
-              onClick={launchAttack}
-              disabled={!concert || busy === "attack" || (!data?.hosted && data?.mcp === false)}
-            >
-              {busy === "attack" ? "Racing…" : "Launch attack"}
-            </button>
-          </div>
-          <p className="note">
-            {data?.hosted
-              ? "A hosted attack runs up to 40 agents."
-              : "About 20% carry a fresh grant."}
-          </p>
-          {attack && (attack.agents ?? 0) > 0 && (
-            <p className="toast">
-              {attack.agents ?? 0} agents · {attack.PURCHASE_COMPLETE ?? 0} purchased ·{" "}
-              {attack.IDENTITY_ALREADY_USED ?? 0} already used · {attack.WORLD_ID_NOT_DETECTED ?? 0} undetected ·{" "}
-              {attack.PURCHASE_DENIED ?? 0} denied
+            </form>
+            <p className="note">
+              {!data
+                ? "Checking the MCP server…"
+                : data.hosted
+                  ? `Agents connect at ${data.mcpUrl}.`
+                  : data.mcp
+                    ? "MCP is live."
+                    : "MCP is offline. Start pnpm dev before creating a concert."}
             </p>
-          )}
-          {error && <p className="error">{error}</p>}
+          </details>
         </aside>
 
-        <section className="stage">
-          <ul className="legend">
-            <li className="ok">cleared</li>
-            <li className="used">identity used</li>
-            <li className="miss">no World ID</li>
-            <li className="deny">denied</li>
-          </ul>
-          <button className="replay" type="button" onClick={() => setReplay((value) => value + 1)} disabled={history.length === 0}>
-            Replay purchases
-          </button>
+        <section className={`stage${attackRunning ? " armed" : ""}`}>
           {concert?.backdrop ? (
             <video
               key={`${concert.id}-${concert.backdrop.updatedAt}`}
@@ -465,119 +523,99 @@ export function Dashboard() {
             sold={concert?.sold ?? 0}
             supply={concert?.supply ?? 0}
             title={concert?.name ?? "Ticket pool"}
+            armed={attackRunning}
           />
-          {concert?.art ? <ConcertArt concert={concert} className="poster" /> : null}
+          <div className="stage-head">
+            <div className="stage-title">
+              <span className="eyebrow">
+                <span className="signal-dot" /> Live arena
+              </span>
+              <h2>{concert?.name ?? "The ticket race"}</h2>
+              <p>
+                {concert
+                  ? `${concert.venue} · ${saleStatus(concert)} · ${concert.sold}/${concert.supply} sold`
+                  : "Choose a concert to watch agents race for tickets."}
+              </p>
+              {concert ? (
+                <span className="meter" aria-hidden="true">
+                  <span style={{ width: `${Math.min(100, (concert.sold / Math.max(1, concert.supply)) * 100)}%` }} />
+                </span>
+              ) : null}
+              <ul className="legend" aria-label="Race outcomes">
+                <li className="ok">cleared</li>
+                <li className="used">identity used</li>
+                <li className="miss">no World ID</li>
+                <li className="deny">denied</li>
+              </ul>
+            </div>
+            <div className="stage-tools">
+              <button className="replay" type="button" onClick={() => setReplay((value) => value + 1)} disabled={history.length === 0}>
+                <svg viewBox="0 0 16 16" aria-hidden="true">
+                  <path d="M2.5 8a5.5 5.5 0 1 0 1.7-4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                  <path d="M2 1.8v3.4h3.4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                Replay
+              </button>
+              {concert?.art ? <ConcertArt concert={concert} className="poster" /> : null}
+            </div>
+          </div>
+          {attackRunning ? (
+            <div className="inbound" role="status">
+              <i /> Swarm inbound · {agents || 0} agents
+            </div>
+          ) : null}
         </section>
 
         <aside className="panel archive">
-          <h2>Concerts</h2>
-          {data && data.concerts.length > 0 ? (
-            <ul className="shows">
-              {data.concerts.map((item) => {
-                const attemptCount = (data.attempts ?? []).filter((attempt) => attempt.concertId === item.id).length;
-                return (
-                  <li key={item.id}>
-                    <button
-                      type="button"
-                      className={item.id === concert?.id ? "active" : ""}
-                      onClick={() => setSelected(item.id)}
-                    >
-                      {item.art ? (
-                        <ConcertArt concert={item} className="thumb" />
-                      ) : (
-                        <span className="thumb empty" />
-                      )}
-                      <span className="show-copy">
-                        <strong>{item.name}</strong>
-                        <span>
-                          {saleStatus(item)} · {item.sold}/{item.supply} · {attemptCount} attempts
-                        </span>
-                        <span>
-                          {when(item.saleStartsAt ?? item.createdAt ?? item.saleEndsAt)} → {when(item.saleEndsAt)}
-                        </span>
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          ) : (
-            <p className="note">{loadError || (data ? "No concerts yet." : "Loading concerts…")}</p>
-          )}
-          <h2>World ID</h2>
-          {proof ? (
-            <pre className="receipt">
-              {JSON.stringify(
-                {
-                  claims: proof.claims,
-                  send: {
-                    tool: "issue_grant",
-                    ensName: proof.ensName,
-                    concertId: proof.concertId,
-                    maxTickets: proof.maxTickets,
-                    expiresAt: proof.expiresAt,
-                    idToken: proof.idToken,
-                  },
-                  ens: {
-                    name: proof.ensName,
-                    tx: data?.agents?.find((agent) => agent.ensName === proof.ensName)?.ensRecordTx,
-                    records: data?.agents?.find((agent) => agent.ensName === proof.ensName)?.records,
-                  },
-                },
-                null,
-                2,
-              )}
-            </pre>
-          ) : (
-            <p className="note">
-              Verify a human for this concert. World returns an ID token, and that token is what the agent sends to issue_grant.
-            </p>
-          )}
-          {proof ? <ExplorerLinks links={proofLinks(proof, data?.agents)} /> : null}
-          <h2>Status</h2>
-          {concert ? (
-            <>
-              <p className="rules">
-                {concert.name} · {concert.venue} · {saleStatus(concert)} · {concert.sold}/{concert.supply} sold
-                <br />
-                {when(concert.saleStartsAt ?? concert.createdAt ?? concert.saleEndsAt)} → {when(concert.saleEndsAt)}
-              </p>
-              {concert.suiPoolId ? (
-                <ExplorerLinks links={[{ label: "Sui pool", href: suiObject(concert.suiPoolId) }]} />
-              ) : null}
-              <label className="upload">
-                {busy === "art" ? "Uploading…" : concert.art ? "Replace picture or video" : "Upload picture or video"}
-                <input
-                  type="file"
-                  accept="image/*,video/mp4,video/webm"
-                  disabled={busy === "art"}
-                  onChange={(event) => {
-                    const file = event.target.files?.[0];
-                    event.target.value = "";
-                    void uploadArt(file);
-                  }}
-                />
-              </label>
-            </>
-          ) : (
-            <p className="note">Select a concert.</p>
-          )}
-          <div className="counts">
-            <div><strong>{counts.PURCHASE_COMPLETE}</strong><span className="ok">purchased</span></div>
-            <div><strong>{counts.IDENTITY_ALREADY_USED}</strong><span className="used">already used</span></div>
-            <div><strong>{counts.WORLD_ID_NOT_DETECTED}</strong><span className="miss">undetected</span></div>
-            <div><strong>{counts.PURCHASE_DENIED}</strong><span className="deny">denied</span></div>
+          <section className="scoreboard" aria-label="Outcomes for this concert">
+            <div className="section-heading">
+              <h2>Outcomes</h2>
+              <span className="step">{totalAttempts} attempts</span>
+            </div>
+            <div className="split" aria-hidden="true">
+              {(["PURCHASE_COMPLETE", "IDENTITY_ALREADY_USED", "WORLD_ID_NOT_DETECTED", "PURCHASE_DENIED"] as const).map((key) => (
+                <span key={key} className={tone(key)} style={{ flexGrow: counts[key] }} />
+              ))}
+            </div>
+            <div className="metrics">
+              <Metric value={counts.PURCHASE_COMPLETE} total={totalAttempts} label="purchased" tone="ok" />
+              <Metric value={counts.IDENTITY_ALREADY_USED} total={totalAttempts} label="already used" tone="used" />
+              <Metric value={counts.WORLD_ID_NOT_DETECTED} total={totalAttempts} label="undetected" tone="miss" />
+              <Metric value={counts.PURCHASE_DENIED} total={totalAttempts} label="denied" tone="deny" />
+            </div>
+          </section>
+
+          <div className="tabs" role="tablist" aria-label="Details">
+            {(
+              [
+                ["feed", "Live feed", history.length],
+                ["shows", "Concerts", data?.concerts.length ?? 0],
+                ["proof", "Proof", proof ? 1 : 0],
+              ] as const
+            ).map(([key, label, count]) => (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                aria-selected={tab === key}
+                className={tab === key ? "on" : ""}
+                onClick={() => setTab(key)}
+              >
+                {label}
+                {key !== "proof" ? <span>{count}</span> : count ? <span className="ok">✓</span> : null}
+              </button>
+            ))}
           </div>
-          <h2>History</h2>
-          {history.length > 0 ? (
-            <ul className="feed">
-              {history.map((attempt, index) => (
-                <li key={attempt.id}>
-                  <EnsHead name={attempt.ensName} />
-                  <div>
-                    <strong>
-                      {index + 1}.{" "}
+
+          {tab === "feed" ? (
+            history.length > 0 ? (
+              <ul className="feed">
+                {feed.map((attempt) => (
+                  <li key={attempt.id} title={attempt.reason}>
+                    <EnsHead name={attempt.ensName} />
+                    <div className="feed-copy">
                       <a
+                        className="feed-name"
                         href={
                           agentRecorded(data?.agents, attempt.ensName)
                             ? ensRecords(attempt.ensName)
@@ -586,44 +624,203 @@ export function Dashboard() {
                         target="_blank"
                         rel="noreferrer"
                       >
-                        {attempt.ensName}
+                        {attempt.ensName.replace(".realclanker.eth", "")}
                       </a>
-                    </strong>
-                    <em className={tone(attempt.outcome)}>{attempt.outcome}</em>
-                    <p>{attempt.reason}</p>
-                    <code>
-                      {clock(attempt.at)}
-                      {attempt.settlement === "sui" && attempt.suiObjectId ? (
-                        <>
-                          {" · "}
-                          <a href={suiObject(attempt.suiObjectId)} target="_blank" rel="noreferrer">
-                            ticket
-                          </a>
-                        </>
-                      ) : (
-                        <> · {settlementLabel(attempt)}</>
+                      <code>
+                        {clock(attempt.at)}
+                        {attempt.settlement === "sui" && attempt.suiObjectId ? (
+                          <>
+                            {" · "}
+                            <a href={suiObject(attempt.suiObjectId)} target="_blank" rel="noreferrer">
+                              ticket ↗
+                            </a>
+                          </>
+                        ) : (
+                          <> · {settlementLabel(attempt)}</>
+                        )}
+                        {attempt.suiAddress ? (
+                          <>
+                            {" · "}
+                            <a href={suiAccount(attempt.suiAddress)} target="_blank" rel="noreferrer">
+                              wallet ↗
+                            </a>
+                          </>
+                        ) : null}
+                      </code>
+                    </div>
+                    <em className={`badge ${tone(attempt.outcome)}`}>{badge(attempt.outcome)}</em>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="note empty">No attempts for this concert yet. Launch the swarm to fill the feed.</p>
+            )
+          ) : null}
+
+          {tab === "shows" ? (
+            data && data.concerts.length > 0 ? (
+              <ul className="shows">
+                {data.concerts.map((item) => {
+                  const attemptCount = (data.attempts ?? []).filter((attempt) => attempt.concertId === item.id).length;
+                  return (
+                    <li key={item.id}>
+                      <button
+                        type="button"
+                        className={item.id === concert?.id ? "active" : ""}
+                        onClick={() => setSelected(item.id)}
+                      >
+                        {item.art ? <ConcertArt concert={item} className="thumb" /> : <span className="thumb empty" />}
+                        <span className="show-copy">
+                          <strong>{item.name}</strong>
+                          <span>
+                            {saleStatus(item)} · {item.sold}/{item.supply} · {attemptCount} attempts
+                          </span>
+                          <span>
+                            {when(item.saleStartsAt ?? item.createdAt ?? item.saleEndsAt)} → {when(item.saleEndsAt)}
+                          </span>
+                          <span className="meter" aria-hidden="true">
+                            <span style={{ width: `${Math.min(100, (item.sold / Math.max(1, item.supply)) * 100)}%` }} />
+                          </span>
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <p className="note empty">{loadError || (data ? "No concerts yet." : "Loading concerts…")}</p>
+            )
+          ) : null}
+
+          {tab === "proof" ? (
+            <div className="proof">
+              <h3>World ID</h3>
+              {proof ? (
+                <>
+                  <p className="verified">
+                    <i /> Verified human → <b>{proof.ensName}</b>
+                  </p>
+                  <ExplorerLinks links={proofLinks(proof, data?.agents)} />
+                  <details className="receipt-wrap">
+                    <summary>ID token receipt</summary>
+                    <pre className="receipt">
+                      {JSON.stringify(
+                        {
+                          claims: proof.claims,
+                          send: {
+                            tool: "issue_grant",
+                            ensName: proof.ensName,
+                            concertId: proof.concertId,
+                            maxTickets: proof.maxTickets,
+                            expiresAt: proof.expiresAt,
+                            idToken: proof.idToken,
+                          },
+                          ens: {
+                            name: proof.ensName,
+                            tx: data?.agents?.find((agent) => agent.ensName === proof.ensName)?.ensRecordTx,
+                            records: data?.agents?.find((agent) => agent.ensName === proof.ensName)?.records,
+                          },
+                        },
+                        null,
+                        2,
                       )}
-                      {attempt.suiAddress ? (
-                        <>
-                          {" · "}
-                          <a href={suiAccount(attempt.suiAddress)} target="_blank" rel="noreferrer">
-                            wallet
-                          </a>
-                        </>
-                      ) : null}
-                    </code>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="note">No attempts for this concert.</p>
-          )}
+                    </pre>
+                  </details>
+                </>
+              ) : (
+                <p className="note">
+                  Verify a human for this concert. World returns an ID token, and that token is what the agent sends to issue_grant.
+                </p>
+              )}
+              <h3>Status</h3>
+              {concert ? (
+                <>
+                  <p className="rules">
+                    {concert.name} · {concert.venue} · {saleStatus(concert)} · {concert.sold}/{concert.supply} sold
+                    <br />
+                    {when(concert.saleStartsAt ?? concert.createdAt ?? concert.saleEndsAt)} → {when(concert.saleEndsAt)}
+                  </p>
+                  {concert.suiPoolId ? (
+                    <ExplorerLinks links={[{ label: "Sui pool", href: suiObject(concert.suiPoolId) }]} />
+                  ) : null}
+                  <label className="upload">
+                    {busy === "art" ? "Uploading…" : concert.art ? "Replace picture or video" : "Upload picture or video"}
+                    <input
+                      type="file"
+                      accept="image/*,video/mp4,video/webm"
+                      disabled={busy === "art"}
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        event.target.value = "";
+                        void uploadArt(file);
+                      }}
+                    />
+                  </label>
+                </>
+              ) : (
+                <p className="note">Select a concert.</p>
+              )}
+            </div>
+          ) : null}
         </aside>
       </section>
     </main>
   );
 }
+
+function SwarmIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none">
+      <path className="chev c1" d="M4 7l5 5-5 5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <path className="chev c2" d="M10 7l5 5-5 5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <path className="chev c3" d="M16 7l5 5-5 5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function Metric({ value, total, label, tone: kind }: { value: number; total: number; label: string; tone: string }) {
+  const shown = useTween(value);
+  const share = total > 0 ? Math.round((value / total) * 100) : 0;
+  return (
+    <div className={`metric ${kind}`}>
+      <strong key={value}>{shown}</strong>
+      <span>
+        <i />
+        {label}
+      </span>
+      <small>{share}%</small>
+    </div>
+  );
+}
+
+function useTween(value: number) {
+  const [shown, setShown] = useState(value);
+  const current = useRef(value);
+  useEffect(() => {
+    const from = current.current;
+    if (from === value) return;
+    const start = performance.now();
+    let raf = 0;
+    const tick = (now: number) => {
+      const p = Math.min(1, (now - start) / 650);
+      const next = Math.round(from + (value - from) * (1 - Math.pow(1 - p, 3)));
+      current.current = next;
+      setShown(next);
+      if (p < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [value]);
+  return shown;
+}
+
+function badge(outcome: Outcome) {
+  if (outcome === "PURCHASE_COMPLETE") return "Bought";
+  if (outcome === "IDENTITY_ALREADY_USED") return "Duplicate";
+  if (outcome === "WORLD_ID_NOT_DETECTED") return "No ID";
+  return "Denied";
+}
+
 
 function EnsHead({ name }: { name: string }) {
   return (
