@@ -120,6 +120,37 @@ export async function readConcertArt(concertId: string): Promise<{ contentType: 
   return { contentType: art.contentType, bytes: Buffer.from(art.data, "base64") };
 }
 
+export async function setConcertBackdrop(
+  concertId: string,
+  file: { contentType: string; bytes: Uint8Array },
+): Promise<Concert> {
+  const contentType = file.contentType.toLowerCase();
+  if (!contentType.startsWith("video/")) throw new Error("The background must be a video.");
+  if (file.bytes.byteLength < 1 || file.bytes.byteLength > ART_LIMIT) {
+    throw new Error("The video must be under 4 MB.");
+  }
+  const current = await readState();
+  const existing = current.concerts.find((item) => item.id === concertId);
+  if (!existing) throw new Error("Concert not found.");
+  const updatedAt = Date.now();
+  await withJson(`backdrop-${concertId}.json`, { contentType: "", data: "" }, (stored) => {
+    stored.contentType = contentType;
+    stored.data = Buffer.from(file.bytes).toString("base64");
+  });
+  await withState((state) => {
+    const concert = state.concerts.find((item) => item.id === concertId);
+    if (!concert) return;
+    concert.backdrop = { contentType, updatedAt };
+  });
+  return { ...existing, backdrop: { contentType, updatedAt } };
+}
+
+export async function readConcertBackdrop(concertId: string): Promise<{ contentType: string; bytes: Buffer } | null> {
+  const stored = await readJson(`backdrop-${concertId}.json`, { contentType: "", data: "" });
+  if (!stored.data || !stored.contentType) return null;
+  return { contentType: stored.contentType, bytes: Buffer.from(stored.data, "base64") };
+}
+
 export async function registerAgent(
   ensName: string,
   options?: { mint?: boolean },

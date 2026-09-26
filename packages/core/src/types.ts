@@ -25,6 +25,10 @@ export type Concert = {
     contentType: string;
     updatedAt: number;
   };
+  backdrop?: {
+    contentType: string;
+    updatedAt: number;
+  };
 };
 
 export type Agent = {

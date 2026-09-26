@@ -24,6 +24,10 @@ type Concert = {
     contentType: string;
     updatedAt: number;
   };
+  backdrop?: {
+    contentType: string;
+    updatedAt: number;
+  };
 };
 
 type Attempt = Racer & {
@@ -113,7 +117,8 @@ export function Dashboard() {
   const [form, setForm] = useState(emptyForm);
   const [selected, setSelected] = useState("");
   const [ensName, setEnsName] = useState("my-agent.eth");
-  const [agents, setAgents] = useState("50");
+  const [agents, setAgents] = useState("40");
+  const [backdropFile, setBackdropFile] = useState<File | null>(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [loadError, setLoadError] = useState("");
@@ -141,6 +146,10 @@ export function Dashboard() {
       window.clearInterval(timer);
     };
   }, []);
+
+  useEffect(() => {
+    setBackdropFile(null);
+  }, [selected]);
 
   useEffect(() => {
     if (selected || !data?.concerts.length) return;
@@ -250,6 +259,18 @@ export function Dashboard() {
     const payload = await response.json();
     setBusy("");
     if (!response.ok) setError(payload.error || "Could not store the art.");
+  }
+
+  async function uploadBackdrop(file: File | undefined) {
+    if (!concert || !file) return;
+    setBusy("backdrop");
+    setError("");
+    const body = new FormData();
+    body.set("file", file);
+    const response = await fetch(`/api/concerts/${concert.id}/backdrop`, { method: "POST", body });
+    const payload = await response.json();
+    setBusy("");
+    if (!response.ok) setError(payload.error || "Could not store the video.");
   }
 
   const worldNote =
@@ -364,7 +385,7 @@ export function Dashboard() {
           </div>
           <p className="note">
             {data?.hosted
-              ? "A hosted attack uses up to 16 agents."
+              ? "A hosted attack runs up to 40 agents."
               : "About 20% carry a fresh grant."}
           </p>
           {attack && (attack.agents ?? 0) > 0 && (
@@ -378,12 +399,43 @@ export function Dashboard() {
         </aside>
 
         <section className="stage">
+          <form
+            className="video-bar"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void uploadBackdrop(backdropFile ?? undefined);
+            }}
+          >
+            <label>
+              Background video for {concert?.name ?? "this concert"}
+              <input
+                type="file"
+                accept="video/mp4,video/webm"
+                disabled={!concert || busy === "backdrop"}
+                onChange={(event) => setBackdropFile(event.target.files?.[0] ?? null)}
+              />
+            </label>
+            <button className="primary" type="submit" disabled={!concert || !backdropFile || busy === "backdrop"}>
+              {busy === "backdrop" ? "Uploading…" : "Upload video"}
+            </button>
+          </form>
           <ul className="legend">
             <li className="ok">cleared</li>
             <li className="used">identity used</li>
             <li className="miss">no World ID</li>
             <li className="deny">denied</li>
           </ul>
+          {concert?.backdrop ? (
+            <video
+              key={`${concert.id}-${concert.backdrop.updatedAt}`}
+              className="stage-video"
+              src={backdropUrl(concert)}
+              autoPlay
+              muted
+              loop
+              playsInline
+            />
+          ) : null}
           <RaceCanvas
             key={`${concert?.id ?? "pool"}-${replay}`}
             racers={history}
@@ -586,6 +638,10 @@ function saleStatus(concert: Concert) {
 
 function artUrl(concert: Concert) {
   return `/api/concerts/${concert.id}/art?v=${concert.art?.updatedAt ?? 0}`;
+}
+
+function backdropUrl(concert: Concert) {
+  return `/api/concerts/${concert.id}/backdrop?v=${concert.backdrop?.updatedAt ?? 0}`;
 }
 
 function ConcertArt({ concert, className }: { concert: Concert; className: string }) {

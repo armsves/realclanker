@@ -11,7 +11,7 @@ export async function POST(request: Request) {
   const body = (await request.json()) as { concertId?: string; agents?: number };
   const concertId = String(body.concertId ?? "");
   const requested = Math.max(4, Math.min(80, Number(body.agents) || 12));
-  const agents = process.env.VERCEL ? Math.min(requested, 16) : requested;
+  const agents = process.env.VERCEL ? Math.min(requested, 40) : requested;
   if (!concertId) return Response.json({ error: "Pick a concert first." }, { status: 400 });
   try {
     const summary = await runSwarm({ agents, concertId });
