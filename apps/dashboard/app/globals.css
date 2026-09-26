@@ -709,6 +709,10 @@ button.launch.running .launch-progress::after {
 
 /* ---------- Right panel ---------- */
 
+.buyers { padding: 14px 10px 8px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; max-height: 280px; flex: none; }
+.buyers .section-heading { margin: 0 4px 8px; }
+.buyers .feed { max-height: 220px; }
+.buyers .note.empty { padding: 8px 4px 12px; }
 .scoreboard { padding: 14px 14px 12px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); flex: none; }
 .scoreboard .section-heading { margin-bottom: 10px; }
 .split { display: flex; gap: 2px; height: 6px; margin-bottom: 12px; border-radius: 6px; overflow: hidden; background: rgba(255, 240, 220, 0.06); }

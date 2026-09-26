@@ -177,6 +177,10 @@ export function Dashboard() {
     [data, concert],
   );
   const history = useMemo(() => [...attempts].sort((a, b) => a.at - b.at), [attempts]);
+  const buyers = useMemo(
+    () => history.filter((attempt) => attempt.outcome === "PURCHASE_COMPLETE").reverse(),
+    [history],
+  );
   const counts = countOutcomes(attempts);
   const proof = useMemo(() => {
     return (data?.grants ?? [])
@@ -560,6 +564,51 @@ export function Dashboard() {
               <Metric value={counts.WORLD_ID_NOT_DETECTED} total={totalAttempts} label="undetected" tone="miss" />
               <Metric value={counts.PURCHASE_DENIED} total={totalAttempts} label="denied" tone="deny" />
             </div>
+          </section>
+
+          <section className="buyers" aria-label="Approved buyers">
+            <div className="section-heading">
+              <h2>Approved buyers</h2>
+              <span className="step">{buyers.length}</span>
+            </div>
+            {buyers.length > 0 ? (
+              <ul className="feed">
+                {buyers.map((attempt) => (
+                  <li key={attempt.id}>
+                    <EnsHead name={attempt.ensName} />
+                    <div className="feed-copy">
+                      <a
+                        className="feed-name"
+                        href={
+                          agentRecorded(data?.agents, attempt.ensName)
+                            ? ensRecords(attempt.ensName)
+                            : ensExplorer(attempt.ensName)
+                        }
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        {attempt.ensName.replace(".realclanker.eth", "")}
+                      </a>
+                      <code>
+                        {clock(attempt.at)}
+                        {attempt.settlement === "sui" && attempt.suiObjectId ? (
+                          <>
+                            {" · "}
+                            <a href={suiObject(attempt.suiObjectId)} target="_blank" rel="noreferrer">
+                              ticket ↗
+                            </a>
+                          </>
+                        ) : (
+                          <> · {settlementLabel(attempt)}</>
+                        )}
+                      </code>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="note empty">Nobody has bought a ticket for this concert.</p>
+            )}
           </section>
 
           <div className="tabs" role="tablist" aria-label="Details">
