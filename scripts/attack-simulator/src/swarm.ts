@@ -82,14 +82,17 @@ export async function runSwarm(input: { agents: number; concertId: string }) {
       publish: false,
     });
   }
-  const attempts = await Promise.all(
-    plans.map((plan) => buyTicket(plan.ensName, input.concertId, { chain: false })),
-  );
-  const winners = attempts.filter((item) => item.outcome === "PURCHASE_COMPLETE").slice(0, 2).map((item) => item.ensName);
+  const attempts = [];
+  for (const plan of plans) {
+    attempts.push(await buyTicket(plan.ensName, input.concertId, { publish: false }));
+  }
+  const bought = attempts.filter((item) => item.outcome === "PURCHASE_COMPLETE").map((item) => item.ensName);
+  const winners = bought.slice(0, 2);
   return {
     agents: total,
     concertId: input.concertId,
     winners,
+    buyers: bought,
     PURCHASE_COMPLETE: attempts.filter((item) => item.outcome === "PURCHASE_COMPLETE").length,
     IDENTITY_ALREADY_USED: attempts.filter((item) => item.outcome === "IDENTITY_ALREADY_USED").length,
     WORLD_ID_NOT_DETECTED: attempts.filter((item) => item.outcome === "WORLD_ID_NOT_DETECTED").length,

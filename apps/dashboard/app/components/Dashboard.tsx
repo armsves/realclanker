@@ -177,11 +177,12 @@ export function Dashboard() {
     [data, concert],
   );
   const history = useMemo(() => [...attempts].sort((a, b) => a.at - b.at), [attempts]);
-  const buyers = useMemo(
-    () => history.filter((attempt) => attempt.outcome === "PURCHASE_COMPLETE").reverse(),
+  const visible = useMemo(
+    () => history.filter((attempt) => attempt.outcome !== "PURCHASE_COMPLETE" || isRealBuy(attempt)),
     [history],
   );
-  const counts = countOutcomes(attempts);
+  const buyers = useMemo(() => visible.filter((attempt) => isRealBuy(attempt)).reverse(), [visible]);
+  const counts = countOutcomes(visible);
   const proof = useMemo(() => {
     return (data?.grants ?? [])
       .filter((grant) => concert && grant.concertId === concert.id && grant.source === "oidc" && grant.idToken)
@@ -308,8 +309,8 @@ export function Dashboard() {
 
   const mcpState = !data ? "checking" : data.hosted || data.mcp ? "live" : "offline";
   const attackRunning = busy === "attack";
-  const feed = [...history].reverse();
-  const totalAttempts = attempts.length;
+  const feed = [...visible].reverse();
+  const totalAttempts = visible.length;
 
   return (
     <main className="shell">
@@ -594,8 +595,12 @@ export function Dashboard() {
                         {attempt.settlement === "sui" && attempt.suiObjectId ? (
                           <>
                             {" · "}
-                            <a href={suiObject(attempt.suiObjectId)} target="_blank" rel="noreferrer">
-                              ticket ↗
+                            <a
+                              href={attempt.suiAddress ? suiAccount(attempt.suiAddress) : suiObject(attempt.suiObjectId)}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              Sui explorer
                             </a>
                           </>
                         ) : (
@@ -657,8 +662,12 @@ export function Dashboard() {
                         {attempt.settlement === "sui" && attempt.suiObjectId ? (
                           <>
                             {" · "}
-                            <a href={suiObject(attempt.suiObjectId)} target="_blank" rel="noreferrer">
-                              ticket ↗
+                            <a
+                              href={attempt.suiAddress ? suiAccount(attempt.suiAddress) : suiObject(attempt.suiObjectId)}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              Sui explorer
                             </a>
                           </>
                         ) : (
@@ -963,9 +972,12 @@ function suiAccount(address: string) {
   return `https://suiscan.xyz/devnet/account/${address}`;
 }
 
+function isRealBuy(attempt: Attempt) {
+  return attempt.outcome === "PURCHASE_COMPLETE" && attempt.settlement === "sui" && Boolean(attempt.suiObjectId);
+}
+
 function settlementLabel(attempt: Attempt) {
-  if (attempt.settlement === "sui" && attempt.suiObjectId) return `sui ${attempt.suiObjectId.slice(0, 10)}`;
-  if (attempt.settlement === "simulated") return "simulated";
+  if (isRealBuy(attempt) && attempt.suiObjectId) return `sui ${attempt.suiObjectId.slice(0, 10)}`;
   if (attempt.settlement === "none") return "no payment";
   return attempt.settlement;
 }

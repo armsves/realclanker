@@ -2,7 +2,7 @@ import { readJson, withJson } from "@realclanker/core";
 import { keccak256, namehash, toHex, type Address } from "viem";
 import { avatarDataUri } from "./avatar";
 import { ETH_REGISTRY, registryAbi, resolverAbi } from "./contracts";
-import { enqueuePlatform, platformAccount, sepoliaClients } from "./evm-wallets";
+import { dripEth, enqueuePlatform, ensureAgentEvmWallet, platformAccount, sepoliaClients } from "./evm-wallets";
 import { recordsResolverAbi, recordsResolverBytecode } from "./recordsResolver";
 
 export { avatarDataUri };
@@ -98,6 +98,41 @@ async function pointRecordsResolver(ensName: string, resolver: Address) {
   if (receipt.status !== "success") throw new Error("Could not point the name at the records resolver.");
 }
 
+async function pointOwnedResolver(ensName: string, resolver: Address) {
+  if (!ensName.endsWith(".eth") || ensName.slice(0, -4).includes(".")) return;
+  const label = ensName.slice(0, -4);
+  const owned = await ensureAgentEvmWallet(ensName);
+  await dripEth(owned.address, 1_000_000_000_000_000n);
+  const clients = sepoliaClients(owned.account);
+  if (!clients?.wallet) throw new Error("The name owner has no Sepolia wallet.");
+  const current = await clients.publicClient.readContract({
+    address: ETH_REGISTRY,
+    abi: registryAbi,
+    functionName: "getResolver",
+    args: [label],
+  });
+  if (current.toLowerCase() === resolver.toLowerCase()) return;
+  const hash = await clients.wallet.writeContract({
+    address: ETH_REGISTRY,
+    abi: [
+      {
+        name: "setResolver",
+        type: "function",
+        stateMutability: "nonpayable",
+        inputs: [
+          { name: "anyId", type: "uint256" },
+          { name: "resolver", type: "address" },
+        ],
+        outputs: [],
+      },
+    ],
+    functionName: "setResolver",
+    args: [BigInt(keccak256(toHex(label))), resolver],
+  });
+  const receipt = await clients.publicClient.waitForTransactionReceipt({ hash });
+  if (receipt.status !== "success") throw new Error("Could not point the name at the records resolver.");
+}
+
 export type EnsProfile = {
   avatarUrl: string;
   address?: Address;
@@ -132,22 +167,19 @@ export async function writeTextRecord(input: {
     return { wrote: false, error: "Sepolia writer is not configured." };
   }
   try {
+    const parent = (process.env.ENS_PARENT_NAME || "realclanker.eth").trim().toLowerCase();
+    const subname = input.ensName.endsWith(`.${parent}`);
     const account = platformAccount();
     const clients = sepoliaClients(account);
     if (!clients?.wallet) return { wrote: false, error: "Sepolia writer is not configured." };
     const { publicClient, wallet } = clients;
-    const parent = (process.env.ENS_PARENT_NAME || "realclanker.eth").trim().toLowerCase();
-    const resolver = input.ensName.endsWith(`.${parent}`)
-      ? await ensureRecordsResolver()
-      : await publicClient.getEnsResolver({ name: input.ensName });
-    if (!resolver) {
-      return { wrote: false, error: `No ENSv2 resolver for ${input.ensName}.` };
-    }
-    if (input.ensName.endsWith(`.${parent}`)) await pointRecordsResolver(input.ensName, resolver);
+    const resolver = await ensureRecordsResolver();
+    if (subname) await pointRecordsResolver(input.ensName, resolver);
+    else await pointOwnedResolver(input.ensName, resolver);
     const node = namehash(input.ensName);
     const hash = await wallet.writeContract({
       address: resolver,
-      abi: input.ensName.endsWith(`.${parent}`) ? recordsResolverAbi : resolverAbi,
+      abi: recordsResolverAbi,
       functionName: "setText",
       args: [node, input.key, input.value],
     });

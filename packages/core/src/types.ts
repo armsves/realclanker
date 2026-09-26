@@ -80,7 +80,7 @@ export type Attempt = {
   ticketHash?: string;
   suiObjectId?: string;
   suiAddress?: string;
-  settlement: "sui" | "simulated" | "none";
+  settlement: "sui" | "pending" | "none";
   settlementError?: string;
   ensRecordKey?: string;
   at: number;

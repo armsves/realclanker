@@ -468,6 +468,7 @@ export async function publishIdentity(
   const evm = await ensureAgentEvmWallet(name);
   const minted = await mintEns(name, evm.address, options);
   const record = JSON.stringify({
+    approved: true,
     sub: grant.worldIdSub,
     issuer: grant.issuer,
     source: grant.source,
@@ -476,39 +477,175 @@ export async function publishIdentity(
     maxTickets: grant.maxTickets,
     expiresAt: grant.expiresAt,
   });
-  const identity = JSON.stringify({
-    sub: grant.worldIdSub,
-    issuer: grant.issuer,
-    source: grant.source,
-  });
-  const grantWrite = await writeTextRecord({
+  const worldWrite = await writeTextRecord({
     ensName: name,
-    key: grantRecordKey(concertId),
+    key: "realclanker.worldid",
     value: record,
   });
-  const identityWrite =
-    grant.source === "oidc"
-      ? await writeTextRecord({ ensName: name, key: "realclanker.id", value: identity })
-      : undefined;
-  const wrote = grantWrite.wrote && (identityWrite?.wrote ?? true);
   await withState((state) => {
     const agent = state.agents.find((item) => item.ensName === name);
     if (!agent) return;
     agent.records[grantRecordKey(concertId)] = record;
-    if (grant.source === "oidc") agent.records["realclanker.id"] = identity;
-    agent.chainWrite = wrote ? "written" : "failed";
-    agent.chainWriteError = grantWrite.error || identityWrite?.error;
-    agent.ensRecordTx = identityWrite?.txHash || grantWrite.txHash;
+    agent.records["realclanker.worldid"] = record;
+    agent.chainWrite = worldWrite.wrote ? "written" : "failed";
+    agent.chainWriteError = worldWrite.error;
+    agent.ensRecordTx = worldWrite.txHash;
     if (minted.txHash) agent.ensMintTx = minted.txHash;
     agent.ensMint = minted.minted ? "minted" : minted.kind === "owned" ? "owned" : minted.error ? "failed" : agent.ensMint;
     if (minted.error) agent.ensMintError = minted.error;
   });
 }
 
+function suiExplorerAccount(address: string) {
+  const network = process.env.SUI_NETWORK || "devnet";
+  return `https://suiscan.xyz/${network}/account/${address}`;
+}
+
+function suiExplorerObject(objectId: string) {
+  const network = process.env.SUI_NETWORK || "devnet";
+  return `https://suiscan.xyz/${network}/object/${objectId}`;
+}
+
+function realSuiObject(objectId?: string) {
+  return Boolean(objectId && !objectId.startsWith("0xsim"));
+}
+
+function purchaseDescription(attempts: Attempt[]) {
+  return attempts
+    .map((item) => {
+      const identity = item.worldIdSub ? `World ID ${item.worldIdSub} approved` : "World ID approved";
+      const link = item.suiAddress
+        ? ` ${suiExplorerAccount(item.suiAddress)}`
+        : realSuiObject(item.suiObjectId)
+          ? ` ${suiExplorerObject(item.suiObjectId!)}`
+          : "";
+      return `${identity}. Ticket ${item.ticketHash}.${link}`;
+    })
+    .join(" ");
+}
+
+export async function settleRecordedPurchase(ensName: string, concertId: string): Promise<{ objectId?: string; error?: string }> {
+  const name = ensName.trim().toLowerCase();
+  const current = await readState();
+  const attempt = current.attempts.find(
+    (item) => item.ensName === name && item.concertId === concertId && item.outcome === "PURCHASE_COMPLETE" && item.ticketHash,
+  );
+  const concert = current.concerts.find((item) => item.id === concertId);
+  if (!attempt?.ticketHash || !attempt.worldIdSub || !concert) return { error: "Purchase not found." };
+  if (realSuiObject(attempt.suiObjectId)) return { objectId: attempt.suiObjectId };
+  try {
+  let poolId = concert.suiPoolId;
+  if (!poolId && suiConfigured()) {
+    const created = await createPool({ supply: concert.supply, priceMist: BigInt(concert.priceMist) });
+    poolId = created.poolId;
+    if (poolId) {
+      await withState((state) => {
+        const found = state.concerts.find((item) => item.id === concertId);
+        if (found) found.suiPoolId = poolId;
+      });
+    }
+  }
+  const wallet = await ensureAgentWallet(name);
+  const need = BigInt(concert.priceMist) + TICKET_GAS_RESERVE;
+  const balance = (await suiBalance(wallet.suiAddress)) ?? 0n;
+  if (balance < need) await fundAgent(name, need);
+  const settled = await settleTicket({
+    poolId,
+    concertId,
+    ensName: name,
+    worldIdSub: attempt.worldIdSub,
+    priceMist: BigInt(concert.priceMist),
+    hash: attempt.ticketHash,
+    payerSecret: wallet.secretKey,
+  });
+  if (!realSuiObject(settled.objectId)) {
+    const error = settled.error || "Sui did not mint a ticket.";
+    await withState((state) => {
+      revertUnsettled(state, attempt.id, error);
+    });
+    return { error };
+  }
+  await withState((state) => {
+    const found = state.attempts.find((item) => item.id === attempt.id);
+    if (!found) return;
+    found.settlement = "sui";
+    found.suiObjectId = settled.objectId;
+    found.settlementError = undefined;
+  });
+  return { objectId: settled.objectId };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Sui settlement failed.";
+    await withState((state) => {
+      revertUnsettled(state, attempt.id, message);
+    });
+    return { error: message };
+  }
+}
+
+function revertUnsettled(state: State, attemptId: string, error: string) {
+  const found = state.attempts.find((item) => item.id === attemptId);
+  if (!found || found.outcome !== "PURCHASE_COMPLETE" || realSuiObject(found.suiObjectId)) return;
+  const concert = state.concerts.find((item) => item.id === found.concertId);
+  if (concert && concert.sold > 0) concert.sold -= 1;
+  found.outcome = "PURCHASE_DENIED";
+  found.reason = error;
+  found.settlement = "none";
+  found.settlementError = error;
+  found.suiObjectId = undefined;
+  found.ticketHash = undefined;
+}
+
+export async function publishBuyer(
+  ensName: string,
+  concertId: string,
+  options?: { pointAddress?: boolean },
+): Promise<void> {
+  const name = ensName.trim().toLowerCase();
+  await publishIdentity(name, concertId, options);
+  const current = await readState();
+  const attempt = current.attempts.find(
+    (item) => item.ensName === name && item.concertId === concertId && item.outcome === "PURCHASE_COMPLETE" && item.ticketHash,
+  );
+  if (!attempt?.ticketHash) return;
+  const ticket = JSON.stringify({
+    ticketHash: attempt.ticketHash,
+    concertId,
+    worldIdSub: attempt.worldIdSub,
+    settlement: attempt.settlement,
+    ...(attempt.suiObjectId && !attempt.suiObjectId.startsWith("0xsim") ? { suiObjectId: attempt.suiObjectId } : {}),
+  });
+  const ticketWrite = await writeTextRecord({
+    ensName: name,
+    key: ticketRecordKey(concertId),
+    value: ticket,
+  });
+  const purchases = current.attempts.filter(
+    (item) => item.ensName === name && item.outcome === "PURCHASE_COMPLETE" && item.ticketHash && realSuiObject(item.suiObjectId),
+  );
+  const description = purchaseDescription(purchases);
+  const descriptionWrite = description
+    ? await writeTextRecord({ ensName: name, key: "description", value: description })
+    : undefined;
+  await withState((state) => {
+    const agent = state.agents.find((item) => item.ensName === name);
+    if (!agent) return;
+    agent.records[ticketRecordKey(concertId)] = ticket;
+    if (description) agent.records.description = description;
+    if (!ticketWrite.wrote || (descriptionWrite && !descriptionWrite.wrote)) {
+      agent.chainWrite = "failed";
+      agent.chainWriteError = ticketWrite.error || descriptionWrite?.error || agent.chainWriteError;
+      return;
+    }
+    agent.chainWrite = "written";
+    agent.ensRecordTx = descriptionWrite?.txHash || ticketWrite.txHash || agent.ensRecordTx;
+    agent.chainWriteError = undefined;
+  });
+}
+
 export async function buyTicket(
   ensName: string,
   concertId: string,
-  options?: { chain?: boolean },
+  options?: { chain?: boolean; publish?: boolean },
 ): Promise<Attempt> {
   const name = ensName.trim().toLowerCase();
   const now = Date.now();
@@ -554,9 +691,7 @@ export async function buyTicket(
       });
       attempt.ticketHash = hash;
       attempt.ensRecordKey = ticketRecordKey(concertId);
-      attempt.settlement = "simulated";
-      attempt.suiObjectId = `0xsim${hash.slice(0, 16)}`;
-      if (agent) agent.records[ticketRecordKey(concertId)] = hash;
+      attempt.settlement = "pending";
     }
 
     state.attempts.unshift(attempt);
@@ -567,57 +702,25 @@ export async function buyTicket(
     };
   });
 
-  if (
-    options?.chain !== false &&
-    reserved.attempt.outcome === "PURCHASE_COMPLETE" &&
-    reserved.attempt.ticketHash &&
-    reserved.attempt.worldIdSub
-  ) {
-    let fundingError: string | undefined;
-    if (suiConfigured() && reserved.poolId) {
-      const need = BigInt(reserved.priceMist) + TICKET_GAS_RESERVE;
-      const balance = (await suiBalance(wallet.suiAddress)) ?? 0n;
-      if (balance < need) {
-        const funded = await fundAgent(name, need);
-        if (BigInt(funded.balanceMist) < need) fundingError = funded.error || "Agent wallet has no SUI for gas.";
-      }
-    }
-    const settled = fundingError
-      ? {
-          mode: "simulated" as const,
-          ticketHash: reserved.attempt.ticketHash,
-          objectId: `0xsim${reserved.attempt.ticketHash.slice(0, 16)}`,
-          error: fundingError,
-        }
-      : await settleTicket({
-          poolId: reserved.poolId,
-          concertId,
-          ensName: name,
-          worldIdSub: reserved.attempt.worldIdSub,
-          priceMist: BigInt(reserved.priceMist),
-          hash: reserved.attempt.ticketHash,
-          payerSecret: wallet.secretKey,
-        });
-    const record = await writeTextRecord({
-      ensName: name,
-      key: ticketRecordKey(concertId),
-      value: reserved.attempt.ticketHash,
-    });
-    await withState((state) => {
-      const attempt = state.attempts.find((item) => item.id === reserved.attempt.id);
-      const agent = state.agents.find((item) => item.ensName === name);
-      if (attempt) {
-        attempt.settlement = settled.mode;
-        attempt.suiObjectId = settled.objectId ?? attempt.suiObjectId;
-        attempt.settlementError = settled.error;
-      }
-      if (agent) agent.chainWrite = record.wrote ? "written" : agent.chainWrite;
-    });
-    reserved.attempt.settlement = settled.mode;
-    reserved.attempt.suiObjectId = settled.objectId ?? reserved.attempt.suiObjectId;
-    reserved.attempt.settlementError = settled.error;
+  if (reserved.attempt.outcome !== "PURCHASE_COMPLETE" || !reserved.attempt.ticketHash || !reserved.attempt.worldIdSub) {
+    return reserved.attempt;
   }
+  if (options?.chain === false) return reserved.attempt;
 
+  const settled = await settleRecordedPurchase(name, concertId);
+  if (!settled.objectId) {
+    reserved.attempt.outcome = "PURCHASE_DENIED";
+    reserved.attempt.reason = settled.error || "Sui did not mint a ticket.";
+    reserved.attempt.settlement = "none";
+    reserved.attempt.settlementError = settled.error;
+    reserved.attempt.suiObjectId = undefined;
+    reserved.attempt.ticketHash = undefined;
+    return reserved.attempt;
+  }
+  reserved.attempt.settlement = "sui";
+  reserved.attempt.suiObjectId = settled.objectId;
+  reserved.attempt.settlementError = undefined;
+  if (options?.publish !== false) await publishBuyer(name, concertId);
   return reserved.attempt;
 }
 

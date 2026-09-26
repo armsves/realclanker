@@ -15,7 +15,7 @@ export function ticketHash(input: {
 }
 
 export type SettlementResult = {
-  mode: "sui" | "simulated";
+  mode: "sui" | "failed";
   ticketHash: string;
   objectId?: string;
   digest?: string;
@@ -60,9 +60,9 @@ export async function settleTicket(input: {
 }): Promise<SettlementResult> {
   if (!suiConfigured() || !input.poolId) {
     return {
-      mode: "simulated",
+      mode: "failed",
       ticketHash: input.hash,
-      objectId: `0xsim${input.hash.slice(0, 16)}`,
+      error: suiConfigured() ? "Concert has no Sui pool." : "Sui is not configured.",
     };
   }
   try {
@@ -85,6 +85,9 @@ export async function settleTicket(input: {
       tx.transferObjects([ticket, change], payer.toSuiAddress());
     });
     const objectId = result.objects.find((object) => object.type?.includes("::tickets::Ticket"))?.id;
+    if (!objectId) {
+      return { mode: "failed", ticketHash: input.hash, digest: result.digest, error: "Sui did not return a ticket object." };
+    }
     return {
       mode: "sui",
       ticketHash: input.hash,
@@ -93,9 +96,8 @@ export async function settleTicket(input: {
     };
   } catch (error) {
     return {
-      mode: "simulated",
+      mode: "failed",
       ticketHash: input.hash,
-      objectId: `0xsim${input.hash.slice(0, 16)}`,
       error: error instanceof Error ? error.message : "Sui settlement failed.",
     };
   }

@@ -1,5 +1,5 @@
 import { after } from "next/server";
-import { devAuthorized, publishIdentity } from "@realclanker/runtime";
+import { devAuthorized, publishBuyer } from "@realclanker/runtime";
 import { runSwarm } from "@realclanker/attack-simulator/swarm";
 
 export const dynamic = "force-dynamic";
@@ -16,10 +16,10 @@ export async function POST(request: Request) {
   if (!concertId) return Response.json({ error: "Pick a concert first." }, { status: 400 });
   try {
     const summary = await runSwarm({ agents, concertId });
-    const winners = summary.winners ?? [];
+    const buyers = summary.buyers ?? summary.winners ?? [];
     after(async () => {
-      for (const ensName of winners) {
-        await publishIdentity(ensName, concertId, { pointAddress: false });
+      for (const ensName of buyers) {
+        await publishBuyer(ensName, concertId, { pointAddress: false });
       }
     });
     return Response.json({ ok: true, summary });

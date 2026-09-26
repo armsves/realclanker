@@ -7,7 +7,7 @@ export const seedState: State = {
       "name": "Midnight Signal",
       "venue": "Shibuya",
       "supply": 12,
-      "sold": 2,
+      "sold": 0,
       "priceMist": "100000000",
       "maxPerHuman": 1,
       "saleEndsAt": 1790405642573,
@@ -204,8 +204,8 @@ export const seedState: State = {
       "avatarUrl": "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%3E%0A%20%20%20%20%3Crect%20width%3D%2264%22%20height%3D%2264%22%20rx%3D%2232%22%20fill%3D%22hsl(149.79999999999998%2062%25%2042%25)%22%2F%3E%0A%20%20%20%20%3Ccircle%20cx%3D%2232%22%20cy%3D%2232%22%20r%3D%2222%22%20fill%3D%22hsl(257.79999999999995%2078%25%2062%25)%22%2F%3E%0A%20%20%20%20%3Ccircle%20cx%3D%2224%22%20cy%3D%2227%22%20r%3D%223%22%20fill%3D%22%231a1208%22%2F%3E%0A%20%20%20%20%3Ccircle%20cx%3D%2240%22%20cy%3D%2227%22%20r%3D%223%22%20fill%3D%22%231a1208%22%2F%3E%0A%20%20%20%20%3Cpath%20d%3D%22M22%2040c4%205%2016%205%2020%200%22%20fill%3D%22none%22%20stroke%3D%22%231a1208%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%2F%3E%0A%20%20%20%20%3Ctext%20x%3D%2232%22%20y%3D%2258%22%20text-anchor%3D%22middle%22%20font-family%3D%22ui-monospace%2Cmonospace%22%20font-size%3D%228%22%20fill%3D%22%23fff%22%3EA%3C%2Ftext%3E%0A%20%20%3C%2Fsvg%3E",
       "concertId": "show_87d75dadc3f8",
       "worldIdSub": "dev:human-0",
-      "outcome": "IDENTITY_ALREADY_USED",
-      "reason": "This World ID already bought the allowed ticket for this concert.",
+      "outcome": "PURCHASE_DENIED",
+      "reason": "This World ID has not bought a ticket.",
       "settlement": "none",
       "at": 1790394842797
     },
@@ -215,13 +215,10 @@ export const seedState: State = {
       "avatarUrl": "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%3E%0A%20%20%20%20%3Crect%20width%3D%2264%22%20height%3D%2264%22%20rx%3D%2232%22%20fill%3D%22hsl(267.4%2062%25%2042%25)%22%2F%3E%0A%20%20%20%20%3Ccircle%20cx%3D%2232%22%20cy%3D%2232%22%20r%3D%2222%22%20fill%3D%22hsl(320.4%2078%25%2062%25)%22%2F%3E%0A%20%20%20%20%3Ccircle%20cx%3D%2224%22%20cy%3D%2227%22%20r%3D%223%22%20fill%3D%22%231a1208%22%2F%3E%0A%20%20%20%20%3Ccircle%20cx%3D%2240%22%20cy%3D%2227%22%20r%3D%223%22%20fill%3D%22%231a1208%22%2F%3E%0A%20%20%20%20%3Cpath%20d%3D%22M22%2040c4%205%2016%205%2020%200%22%20fill%3D%22none%22%20stroke%3D%22%231a1208%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%2F%3E%0A%20%20%20%20%3Ctext%20x%3D%2232%22%20y%3D%2258%22%20text-anchor%3D%22middle%22%20font-family%3D%22ui-monospace%2Cmonospace%22%20font-size%3D%228%22%20fill%3D%22%23fff%22%3ES%3C%2Ftext%3E%0A%20%20%3C%2Fsvg%3E",
       "concertId": "show_87d75dadc3f8",
       "worldIdSub": "dev:human-1",
-      "outcome": "PURCHASE_COMPLETE",
-      "reason": "World ID grant is valid for this ENS agent, concert, and window.",
-      "settlement": "simulated",
-      "at": 1790394842789,
-      "ticketHash": "a6dcd53b7a6801ea7d30846e9064a0ee4c2e07aa7766853969921eced804ce81",
-      "ensRecordKey": "realclanker.ticket.show_87d75dadc3f8",
-      "suiObjectId": "0xsima6dcd53b7a6801ea"
+      "outcome": "PURCHASE_DENIED",
+      "reason": "Sui did not mint a ticket.",
+      "settlement": "none",
+      "at": 1790394842789
     },
     {
       "id": "try_dc814aa11604",
@@ -229,13 +226,10 @@ export const seedState: State = {
       "avatarUrl": "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%3E%0A%20%20%20%20%3Crect%20width%3D%2264%22%20height%3D%2264%22%20rx%3D%2232%22%20fill%3D%22hsl(113.39999999999999%2062%25%2042%25)%22%2F%3E%0A%20%20%20%20%3Ccircle%20cx%3D%2232%22%20cy%3D%2232%22%20r%3D%2222%22%20fill%3D%22hsl(161.39999999999998%2078%25%2062%25)%22%2F%3E%0A%20%20%20%20%3Ccircle%20cx%3D%2224%22%20cy%3D%2227%22%20r%3D%223%22%20fill%3D%22%231a1208%22%2F%3E%0A%20%20%20%20%3Ccircle%20cx%3D%2240%22%20cy%3D%2227%22%20r%3D%223%22%20fill%3D%22%231a1208%22%2F%3E%0A%20%20%20%20%3Cpath%20d%3D%22M22%2040c4%205%2016%205%2020%200%22%20fill%3D%22none%22%20stroke%3D%22%231a1208%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%2F%3E%0A%20%20%20%20%3Ctext%20x%3D%2232%22%20y%3D%2258%22%20text-anchor%3D%22middle%22%20font-family%3D%22ui-monospace%2Cmonospace%22%20font-size%3D%228%22%20fill%3D%22%23fff%22%3ES%3C%2Ftext%3E%0A%20%20%3C%2Fsvg%3E",
       "concertId": "show_87d75dadc3f8",
       "worldIdSub": "dev:human-0",
-      "outcome": "PURCHASE_COMPLETE",
-      "reason": "World ID grant is valid for this ENS agent, concert, and window.",
-      "settlement": "simulated",
-      "at": 1790394842781,
-      "ticketHash": "90f1fa7266552020b6efb74ef8920418a7c64f4ebc28589ac4e8c7df76f2a940",
-      "ensRecordKey": "realclanker.ticket.show_87d75dadc3f8",
-      "suiObjectId": "0xsim90f1fa7266552020"
+      "outcome": "PURCHASE_DENIED",
+      "reason": "Sui did not mint a ticket.",
+      "settlement": "none",
+      "at": 1790394842781
     }
   ]
 };
