@@ -1,0 +1,12 @@
+{
+  "name": "@realclanker/settlement",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@mysten/sui": "^1.38.0"
+  }
+}

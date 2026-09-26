@@ -1,0 +1,16 @@
+{
+  "name": "realclanker",
+  "private": true,
+  "packageManager": "pnpm@10.20.0",
+  "scripts": {
+    "dev": "pnpm --parallel --filter @realclanker/dashboard --filter @realclanker/mcp dev",
+    "test": "pnpm --filter @realclanker/core test",
+    "simulate": "pnpm --filter @realclanker/attack-simulator start",
+    "sui:build": "cd contracts && sui move build",
+    "sui:test": "cd contracts && sui move test"
+  },
+  "devDependencies": {
+    "@types/node": "^24.5.2",
+    "typescript": "^5.9.2"
+  }
+}

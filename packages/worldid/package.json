@@ -1,0 +1,12 @@
+{
+  "name": "@realclanker/worldid",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "jose": "^6.1.0"
+  }
+}

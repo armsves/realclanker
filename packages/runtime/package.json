@@ -1,0 +1,16 @@
+{
+  "name": "@realclanker/runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@realclanker/core": "workspace:*",
+    "@realclanker/ens": "workspace:*",
+    "@realclanker/settlement": "workspace:*",
+    "@realclanker/worldid": "workspace:*",
+    "dotenv": "^17.2.2"
+  }
+}
