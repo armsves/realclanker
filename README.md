@@ -88,7 +88,7 @@ The streamable HTTP endpoint is `http://127.0.0.1:8787/mcp`.
 
 ## Hosted dashboard
 
-The public site is the organizer view. Serverless instances cannot keep the MCP server or spawn the swarm, so the deployment opens on the Midnight Signal swarm recorded in the repo. Creating a concert there lasts only as long as that instance. Run `pnpm dev` locally to buy through MCP and launch a new attack.
+The organizer view is live at https://realclanker.vercel.app. Serverless instances cannot keep the MCP server or spawn the swarm, so that deployment opens on the Midnight Signal swarm recorded in the repo. Creating a concert there lasts only as long as that instance. Run `pnpm dev` locally to buy through MCP and launch a new attack.
 
 ## Integration notes
 
