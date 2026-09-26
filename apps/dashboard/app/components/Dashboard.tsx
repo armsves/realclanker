@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { ENS_MARK_PATHS, ensColor } from "./ensMark";
-import { RaceCanvas, WORLD_MARK_PATH, type Racer } from "./RaceCanvas";
+import { RaceCanvas, type Racer } from "./RaceCanvas";
 
 type Outcome = Racer["outcome"];
 
@@ -116,14 +116,14 @@ export function Dashboard() {
   const [data, setData] = useState<Snapshot | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [selected, setSelected] = useState("");
-  const [ensName, setEnsName] = useState("my-agent.eth");
   const [agents, setAgents] = useState("40");
   const [backdropFile, setBackdropFile] = useState<File | null>(null);
+  const [backdropError, setBackdropError] = useState("");
+  const [backdropPart, setBackdropPart] = useState("");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [loadError, setLoadError] = useState("");
   const [attack, setAttack] = useState<AttackSummary | null>(null);
-  const [mintNote, setMintNote] = useState("");
   const [replay, setReplay] = useState(0);
   const [tab, setTab] = useState<"feed" | "shows" | "proof">(() => (params.get("worldid") ? "proof" : "feed"));
 
@@ -234,36 +234,6 @@ export function Dashboard() {
     }
   }
 
-  async function mintEns() {
-    setBusy("mint");
-    setError("");
-    setMintNote("");
-    const response = await fetch("/api/ens", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ensName }),
-    });
-    const body = await response.json();
-    setBusy("");
-    if (!response.ok) {
-      setError(body.error || "ENS mint failed.");
-      return;
-    }
-    if (body.ensMintError) {
-      setMintNote(body.evmAddress ? `EVM wallet ${body.evmAddress} is ready for ${body.ensName}.` : "");
-      setError(body.ensMintError);
-      return;
-    }
-    const owned = body.ensMint === "owned" ? "already owns" : "owns";
-    setMintNote(`${body.evmAddress} ${owned} ${body.ensName}. The platform wallet paid the gas.`);
-  }
-
-  function verifyHuman() {
-    if (!concert) return;
-    const query = new URLSearchParams({ concertId: concert.id, ensName });
-    window.location.href = `/api/worldid/start?${query.toString()}`;
-  }
-
   async function uploadArt(file: File | undefined) {
     if (!concert || !file) return;
     setBusy("art");
@@ -293,22 +263,44 @@ export function Dashboard() {
 
   async function uploadBackdrop(file: File | undefined) {
     if (!concert || !file) return;
+    if (file.size > 20_000_000) {
+      setBackdropError("The video must be an mp4 or webm under 20 MB.");
+      return;
+    }
+    const chunkSize = 3_000_000;
+    const parts = Math.ceil(file.size / chunkSize);
     setBusy("backdrop");
-    setError("");
-    const body = new FormData();
-    body.set("file", file);
-    const response = await fetch(`/api/concerts/${concert.id}/backdrop`, { method: "POST", body });
-    const payload = await response.json();
-    setBusy("");
-    if (!response.ok) setError(payload.error || "Could not store the video.");
+    setBackdropError("");
+    const controller = new AbortController();
+    try {
+      for (let part = 0; part < parts; part++) {
+        setBackdropPart(`${part + 1}/${parts}`);
+        const slice = file.slice(part * chunkSize, Math.min(file.size, (part + 1) * chunkSize));
+        const body = new FormData();
+        body.set("file", new File([slice], file.name, { type: file.type }));
+        body.set("part", String(part));
+        body.set("parts", String(parts));
+        body.set("total", String(file.size));
+        const timer = window.setTimeout(() => controller.abort(), 45_000);
+        const response = await fetch(`/api/concerts/${concert.id}/backdrop`, {
+          method: "POST",
+          body,
+          signal: controller.signal,
+        }).finally(() => window.clearTimeout(timer));
+        const payload = (await response.json().catch(() => ({}))) as { error?: string };
+        if (!response.ok) {
+          setBackdropError(payload.error || "Could not store the video.");
+          return;
+        }
+      }
+      setBackdropFile(null);
+    } catch {
+      setBackdropError("The upload did not finish. Use an mp4 or webm under 20 MB.");
+    } finally {
+      setBackdropPart("");
+      setBusy("");
+    }
   }
-
-  const worldNote =
-    params.get("worldid") === "ok"
-      ? "World ID grant stored. That ENS agent can buy through the MCP server."
-      : params.get("worldid") === "error"
-        ? params.get("message") || "World ID verification did not complete."
-        : "";
 
   const mcpState = !data ? "checking" : data.hosted || data.mcp ? "live" : "offline";
   const attackRunning = busy === "attack";
@@ -404,37 +396,10 @@ export function Dashboard() {
             {error && <p className="error">{error}</p>}
           </section>
 
-          <section className="control-section">
-            <div className="section-heading">
-              <h2>Delegate a human</h2>
-              <span className="step">02</span>
-            </div>
-            <label>
-              ENS v2 agent
-              <input value={ensName} onChange={(event) => setEnsName(event.target.value)} spellCheck={false} />
-            </label>
-            <div className="actions">
-              <button className="world" type="button" onClick={verifyHuman} disabled={!concert}>
-                <svg viewBox="0 0 71.8 71.8" aria-hidden="true">
-                  <path d={WORLD_MARK_PATH} fill="currentColor" />
-                </svg>
-                Verify human with World ID
-              </button>
-              <button className="ghost" type="button" onClick={mintEns} disabled={busy === "mint"}>
-                {busy === "mint" ? "Minting…" : "Mint ENS"}
-              </button>
-            </div>
-            <p className="note">
-              The platform wallet pays Sepolia gas. A grant is one human, this show, one ticket.
-            </p>
-            {mintNote && <p className="toast">{mintNote}</p>}
-            {worldNote && <p className="toast">{worldNote}</p>}
-          </section>
-
           <details className="control-section setup" open={data ? data.concerts.length === 0 : false}>
             <summary className="section-heading">
               <h2>Concert setup</h2>
-              <span className="step">03</span>
+              <span className="step">02</span>
             </summary>
             <form onSubmit={createConcert}>
               <label>
@@ -497,9 +462,10 @@ export function Dashboard() {
                   disabled={!concert || !backdropFile || busy === "backdrop"}
                   onClick={() => void uploadBackdrop(backdropFile ?? undefined)}
                 >
-                  {busy === "backdrop" ? "Uploading…" : "Upload"}
+                  {busy === "backdrop" ? `Uploading ${backdropPart}…` : "Upload"}
                 </button>
               </div>
+              {backdropError && <p className="error">{backdropError}</p>}
               <button className="ghost danger" type="button" disabled={!concert || busy === "delete"} onClick={() => void removeConcert()}>
                 {busy === "delete" ? "Deleting…" : concert ? `Delete ${concert.name}` : "Delete concert"}
               </button>

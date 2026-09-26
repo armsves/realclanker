@@ -2,7 +2,10 @@ import { createHash, randomBytes } from "node:crypto";
 import path from "node:path";
 import { config } from "dotenv";
 import {
+  deleteBytes,
   deleteJson,
+  getBytes,
+  putBytes,
   readJson,
   readState,
   repoRoot,
@@ -88,6 +91,21 @@ export async function createConcert(input: {
 }
 
 const ART_LIMIT = 4_000_000;
+export const BACKDROP_CHUNK = 3_000_000;
+export const BACKDROP_LIMIT = 20_000_000;
+
+type BackdropParts = {
+  contentType: string;
+  totalBytes: number;
+  chunkSize: number;
+  received: number[];
+};
+
+const EMPTY_PARTS: BackdropParts = { contentType: "", totalBytes: 0, chunkSize: BACKDROP_CHUNK, received: [] };
+
+function backdropPartName(concertId: string, part: number) {
+  return `backdrop-${concertId}.part.${part}`;
+}
 
 export async function setConcertArt(
   concertId: string,
@@ -121,28 +139,51 @@ export async function readConcertArt(concertId: string): Promise<{ contentType: 
   return { contentType: art.contentType, bytes: Buffer.from(art.data, "base64") };
 }
 
-export async function setConcertBackdrop(
+export async function saveBackdropPart(
   concertId: string,
-  file: { contentType: string; bytes: Uint8Array },
+  file: { contentType: string; bytes: Uint8Array; part: number; parts: number; totalBytes: number },
 ): Promise<Concert> {
   const contentType = file.contentType.toLowerCase();
   if (!contentType.startsWith("video/")) throw new Error("The background must be a video.");
-  if (file.bytes.byteLength < 1 || file.bytes.byteLength > ART_LIMIT) {
-    throw new Error("The video must be under 4 MB.");
+  if (file.totalBytes < 1 || file.totalBytes > BACKDROP_LIMIT) {
+    throw new Error("The video must be an mp4 or webm under 20 MB.");
   }
+  if (!Number.isInteger(file.parts) || file.parts < 1 || file.parts > 8) {
+    throw new Error("Could not store the video.");
+  }
+  if (!Number.isInteger(file.part) || file.part < 0 || file.part >= file.parts) {
+    throw new Error("Could not store the video.");
+  }
+  const expected = file.part === file.parts - 1 ? file.totalBytes - file.part * BACKDROP_CHUNK : BACKDROP_CHUNK;
+  if (expected < 1 || file.bytes.byteLength !== expected) throw new Error("The upload was incomplete. Try again.");
   const current = await readState();
   const existing = current.concerts.find((item) => item.id === concertId);
   if (!existing) throw new Error("Concert not found.");
-  const updatedAt = Date.now();
-  await withJson(`backdrop-${concertId}.json`, { contentType: "", data: "" }, (stored) => {
-    stored.contentType = contentType;
-    stored.data = Buffer.from(file.bytes).toString("base64");
+  await putBytes(backdropPartName(concertId, file.part), Buffer.from(file.bytes));
+  const complete = await withJson(`backdrop-${concertId}.parts.json`, EMPTY_PARTS, (stored) => {
+    if (
+      file.part === 0 ||
+      stored.totalBytes !== file.totalBytes ||
+      stored.contentType !== contentType ||
+      stored.received.length !== file.parts
+    ) {
+      stored.contentType = contentType;
+      stored.totalBytes = file.totalBytes;
+      stored.chunkSize = BACKDROP_CHUNK;
+      stored.received = Array(file.parts).fill(0);
+    }
+    stored.received[file.part] = file.bytes.byteLength;
+    return stored.received.every((size) => size > 0);
   });
+  if (!complete) return existing;
+  const updatedAt = Date.now();
   await withState((state) => {
     const concert = state.concerts.find((item) => item.id === concertId);
     if (!concert) return;
     concert.backdrop = { contentType, updatedAt };
   });
+  await deleteJson(`backdrop-${concertId}.json`);
+  for (let index = file.parts; index < 8; index++) await deleteBytes(backdropPartName(concertId, index));
   return { ...existing, backdrop: { contentType, updatedAt } };
 }
 
@@ -156,12 +197,49 @@ export async function deleteConcert(concertId: string): Promise<void> {
   });
   await deleteJson(`art-${concertId}.json`);
   await deleteJson(`backdrop-${concertId}.json`);
+  await deleteJson(`backdrop-${concertId}.parts.json`);
+  for (let index = 0; index < 8; index++) await deleteBytes(backdropPartName(concertId, index));
 }
 
-export async function readConcertBackdrop(concertId: string): Promise<{ contentType: string; bytes: Buffer } | null> {
+export async function backdropSize(concertId: string): Promise<{ contentType: string; total: number } | null> {
+  const parts = await readJson(`backdrop-${concertId}.parts.json`, EMPTY_PARTS);
+  if (parts.totalBytes > 0 && parts.contentType && parts.received.length > 0 && parts.received.every((size) => size > 0)) {
+    return { contentType: parts.contentType, total: parts.totalBytes };
+  }
   const stored = await readJson(`backdrop-${concertId}.json`, { contentType: "", data: "" });
   if (!stored.data || !stored.contentType) return null;
-  return { contentType: stored.contentType, bytes: Buffer.from(stored.data, "base64") };
+  const padding = stored.data.endsWith("==") ? 2 : stored.data.endsWith("=") ? 1 : 0;
+  return { contentType: stored.contentType, total: Math.floor((stored.data.length * 3) / 4) - padding };
+}
+
+export async function readBackdropRange(
+  concertId: string,
+  start: number,
+  end: number,
+): Promise<{ contentType: string; total: number; bytes: Buffer } | null> {
+  const parts = await readJson(`backdrop-${concertId}.parts.json`, EMPTY_PARTS);
+  if (parts.totalBytes > 0 && parts.contentType && parts.received.length > 0 && parts.received.every((size) => size > 0)) {
+    if (start < 0 || end < start || start >= parts.totalBytes) return null;
+    const last = Math.min(end, parts.totalBytes - 1);
+    const pieces: Buffer[] = [];
+    const firstIndex = Math.floor(start / BACKDROP_CHUNK);
+    const lastIndex = Math.floor(last / BACKDROP_CHUNK);
+    for (let index = firstIndex; index <= lastIndex; index++) {
+      const chunk = await getBytes(backdropPartName(concertId, index));
+      if (!chunk) return null;
+      const origin = index * BACKDROP_CHUNK;
+      const from = Math.max(start, origin) - origin;
+      const to = Math.min(last, origin + chunk.length - 1) - origin;
+      pieces.push(chunk.subarray(from, to + 1));
+    }
+    return { contentType: parts.contentType, total: parts.totalBytes, bytes: Buffer.concat(pieces) };
+  }
+  const stored = await readJson(`backdrop-${concertId}.json`, { contentType: "", data: "" });
+  if (!stored.data || !stored.contentType) return null;
+  const bytes = Buffer.from(stored.data, "base64");
+  if (start < 0 || end < start || start >= bytes.length) return null;
+  const last = Math.min(end, bytes.length - 1);
+  return { contentType: stored.contentType, total: bytes.length, bytes: bytes.subarray(start, last + 1) };
 }
 
 export async function registerAgent(

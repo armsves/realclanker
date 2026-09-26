@@ -83,6 +83,59 @@ function readLocal<T>(name: string, fallback: T): T {
   }
 }
 
+export async function putBytes(name: string, bytes: Buffer): Promise<void> {
+  if (onRedis()) {
+    await redis().set(redisKey(name), bytes);
+    return;
+  }
+  if (onBlob()) {
+    await put(blobPath(name), bytes, {
+      access: "private",
+      addRandomSuffix: false,
+      allowOverwrite: true,
+      contentType: "application/octet-stream",
+      cacheControlMaxAge: 0,
+    });
+    return;
+  }
+  const { file } = localPath(name);
+  fs.writeFileSync(file, bytes, { mode: 0o600 });
+}
+
+export async function getBytes(name: string): Promise<Buffer | null> {
+  if (onRedis()) return redis().getBuffer(redisKey(name));
+  if (onBlob()) {
+    try {
+      const downloaded = await get(blobPath(name), { access: "private", useCache: false });
+      if (!downloaded || downloaded.statusCode !== 200 || !downloaded.stream) return null;
+      return Buffer.from(await new Response(downloaded.stream).arrayBuffer());
+    } catch (error) {
+      if (error instanceof BlobNotFoundError) return null;
+      throw error;
+    }
+  }
+  const { file } = localPath(name);
+  if (!fs.existsSync(file)) return null;
+  return fs.readFileSync(file);
+}
+
+export async function deleteBytes(name: string): Promise<void> {
+  if (onRedis()) {
+    await redis().del(redisKey(name));
+    return;
+  }
+  if (onBlob()) {
+    try {
+      await del(blobPath(name));
+    } catch (error) {
+      if (!(error instanceof BlobNotFoundError)) throw error;
+    }
+    return;
+  }
+  const { file } = localPath(name);
+  if (fs.existsSync(file)) fs.unlinkSync(file);
+}
+
 export async function deleteJson(name: string): Promise<void> {
   cache.delete(name);
   if (onRedis()) {
