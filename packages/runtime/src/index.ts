@@ -166,8 +166,8 @@ export async function readConcertBackdrop(concertId: string): Promise<{ contentT
 
 export async function registerAgent(
   ensName: string,
-  options?: { mint?: boolean },
-): Promise<Agent & { minted: boolean }> {
+  options?: { mint?: boolean; fund?: boolean },
+): Promise<Agent & { minted: boolean; balanceMist?: string; fundingSource?: string; fundingError?: string }> {
   const name = ensName.trim().toLowerCase();
   if (!name.endsWith(".eth")) throw new Error("Agent identity must be an ENS name.");
   const profile =
@@ -177,7 +177,7 @@ export async function registerAgent(
   const evm = await ensureAgentEvmWallet(name);
   const wallet = await ensureAgentWallet(name);
   const mintedName = options?.mint ? await mintEns(name, evm.address) : undefined;
-  return await withState((state) => {
+  const agent = await withState((state) => {
     const existing = state.agents.find((agent) => agent.ensName === name);
     const minted = !existing;
     const address = mintedName?.owner ?? profile.address ?? evm.address;
@@ -216,9 +216,18 @@ export async function registerAgent(
     state.agents.push(agent);
     return { ...agent, minted };
   });
+  if (options?.fund === false) return agent;
+  const funded = await fundAgent(name);
+  return {
+    ...agent,
+    suiAddress: funded.suiAddress,
+    balanceMist: funded.balanceMist,
+    fundingSource: funded.source,
+    fundingError: funded.error,
+  };
 }
 
-export async function fundAgent(ensName: string): Promise<{
+export async function fundAgent(ensName: string, minimumMist = 200_000_000n): Promise<{
   ensName: string;
   suiAddress: string;
   balanceMist: string;
@@ -233,12 +242,12 @@ export async function fundAgent(ensName: string): Promise<{
     if (agent) agent.suiAddress = wallet.suiAddress;
   });
   const before = (await suiBalance(wallet.suiAddress)) ?? 0n;
-  if (before > 0n) {
+  if (before >= minimumMist) {
     return { ensName: name, suiAddress: wallet.suiAddress, balanceMist: before.toString(), source: "already-funded" };
   }
-  const faucet = await fundFromFaucet(wallet.suiAddress);
-  const afterFaucet = faucet.ok ? await waitForBalance(wallet.suiAddress, 1n) : before;
-  if ((afterFaucet ?? 0n) > 0n) {
+  const faucet = before > 0n ? { ok: false as const, error: undefined } : await fundFromFaucet(wallet.suiAddress);
+  const afterFaucet = faucet.ok ? await waitForBalance(wallet.suiAddress, minimumMist) : before;
+  if ((afterFaucet ?? 0n) >= minimumMist) {
     return {
       ensName: name,
       suiAddress: wallet.suiAddress,
@@ -246,17 +255,18 @@ export async function fundAgent(ensName: string): Promise<{
       source: "faucet",
     };
   }
-  const topped = await fundAgentWallet(wallet.suiAddress, 200_000_000n);
+  const short = minimumMist - (afterFaucet ?? 0n);
+  const topped = await fundAgentWallet(wallet.suiAddress, short);
   if (topped.error) {
     return {
       ensName: name,
       suiAddress: wallet.suiAddress,
-      balanceMist: "0",
+      balanceMist: (afterFaucet ?? before).toString(),
       source: "faucet",
       error: faucet.error || topped.error,
     };
   }
-  const afterTreasury = (await waitForBalance(wallet.suiAddress, 1n)) ?? 0n;
+  const afterTreasury = (await waitForBalance(wallet.suiAddress, minimumMist)) ?? afterFaucet ?? 0n;
   return {
     ensName: name,
     suiAddress: wallet.suiAddress,
@@ -490,8 +500,8 @@ export async function buyTicket(
       const need = BigInt(reserved.priceMist) + TICKET_GAS_RESERVE;
       const balance = (await suiBalance(wallet.suiAddress)) ?? 0n;
       if (balance < need) {
-        const funded = await fundAgentWallet(wallet.suiAddress, need - balance);
-        fundingError = funded.error;
+        const funded = await fundAgent(name, need);
+        if (BigInt(funded.balanceMist) < need) fundingError = funded.error || "Agent wallet has no SUI for gas.";
       }
     }
     const settled = fundingError

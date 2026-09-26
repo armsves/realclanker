@@ -68,7 +68,7 @@ export async function runSwarm(input: { agents: number; concertId: string }) {
   });
   const plans = planSwarm(total);
   for (const plan of plans) {
-    await registerAgent(plan.ensName, { mint: false });
+    await registerAgent(plan.ensName, { mint: false, fund: false });
   }
   const now = Date.now();
   for (const plan of plans) {

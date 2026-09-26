@@ -54,7 +54,7 @@ export function createMcpServer() {
     {
       title: "Register ENS agent",
       description:
-        "Create the ENS v2 identity an agent buys with. The server keeps an EVM wallet and a Sui wallet for that name. With mint true, the platform EVM wallet pays Sepolia gas and the agent's EVM address owns the name.",
+        "Create the ENS v2 identity an agent buys with. The server keeps an EVM wallet and a Sui wallet for that name, and funds the Sui wallet from the treasury so the agent can pay gas. Do not call fund_agent after this. With mint true, the platform EVM wallet pays Sepolia gas and the agent's EVM address owns the name.",
       inputSchema: z.object({
         ensName: z.string(),
         mint: z.boolean().default(true),
@@ -97,7 +97,7 @@ export function createMcpServer() {
     {
       title: "Fund the agent Sui wallet",
       description:
-        "Request testnet SUI from the faucet for this agent's wallet. If the faucet is rate-limited, top up from the treasury key instead.",
+        "Optional. Registration already funds the Sui wallet. Call this only when a purchase reports that the wallet still has no SUI.",
       inputSchema: z.object({ ensName: z.string() }),
     },
     async ({ ensName }) => text(await fundAgent(ensName)),
@@ -108,7 +108,7 @@ export function createMcpServer() {
     {
       title: "Buy a ticket",
       description:
-        "Purchase one ticket for an ENS agent. Succeeds when a live grant covers this concert and the human has not already bought. On the sandbox, if the outcome is WORLD_ID_NOT_DETECTED, call issue_grant with the same ensName and concertId and no id token, then call buy_ticket again. Payment is signed by the agent's Sui wallet.",
+        "Purchase one ticket for an ENS agent. Succeeds when a live grant covers this concert and the human has not already bought. On the sandbox, if the outcome is WORLD_ID_NOT_DETECTED, call issue_grant with the same ensName and concertId and no id token, then call buy_ticket again. The Sui wallet is funded at registration. If it is still short, the server tops it up before signing the payment.",
       inputSchema: z.object({
         ensName: z.string(),
         concertId: z.string(),
