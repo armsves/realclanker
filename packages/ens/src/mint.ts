@@ -1,7 +1,10 @@
 import { readJson, withJson } from "@realclanker/core";
 import {
+  concat,
+  encodeAbiParameters,
   encodeFunctionData,
   getAddress,
+  getCreate2Address,
   keccak256,
   namehash,
   parseEventLogs,
@@ -218,12 +221,7 @@ async function ensureParentRegistry(parentLabel: string): Promise<Address> {
       ),
     ),
   );
-  const predicted = await clients.publicClient.readContract({
-    address: VERIFIABLE_FACTORY,
-    abi: factoryAbi,
-    functionName: "predictProxyAddress",
-    args: [account.address, salt],
-  });
+  const predicted = await predictProxyAddress(account.address, salt);
   const code = await clients.publicClient.getBytecode({ address: predicted });
   const registry = code && code !== "0x" ? predicted : await deployRegistry(salt);
   await linkParent(registry, parentLabel);
@@ -266,13 +264,52 @@ async function ensureParentRegistry(parentLabel: string): Promise<Address> {
   return registry;
 }
 
+async function predictProxyAddress(deployer: Address, salt: bigint): Promise<Address> {
+  const clients = sepoliaClients()!;
+  const proxyLogic = await clients.publicClient.readContract({
+    address: VERIFIABLE_FACTORY,
+    abi: factoryAbi,
+    functionName: "proxyLogic",
+  });
+  const outerSalt = keccak256(
+    encodeAbiParameters([{ type: "address" }, { type: "uint256" }], [deployer, salt]),
+  );
+  const initCode = concat([
+    "0x3d604d80600a3d3981f3363d3d373d3d3d363d73",
+    proxyLogic,
+    "0x5af43d82803e903d91602b57fd5bf3",
+    outerSalt,
+  ]);
+  return getCreate2Address({
+    from: VERIFIABLE_FACTORY,
+    salt: outerSalt,
+    bytecodeHash: keccak256(initCode),
+  });
+}
+
 async function deployRegistry(salt: bigint): Promise<Address> {
   const account = platformAccount();
   const clients = sepoliaClients(account)!;
   const data = encodeFunctionData({
-    abi: [{ name: "initialize", type: "function", inputs: [{ type: "address" }, { type: "uint256" }], outputs: [] }],
+    abi: [
+      {
+        name: "initialize",
+        type: "function",
+        inputs: [
+          {
+            name: "grants",
+            type: "tuple[]",
+            components: [
+              { name: "account", type: "address" },
+              { name: "roleBitmap", type: "uint256" },
+            ],
+          },
+        ],
+        outputs: [],
+      },
+    ],
     functionName: "initialize",
-    args: [account.address, PLATFORM_REGISTRY_ROLES],
+    args: [[{ account: account.address, roleBitmap: PLATFORM_REGISTRY_ROLES }]],
   });
   const hash = await clients.wallet!.writeContract({
     address: VERIFIABLE_FACTORY,

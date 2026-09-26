@@ -179,13 +179,10 @@ export const registryAbi = [
 
 export const factoryAbi = [
   {
-    name: "predictProxyAddress",
+    name: "proxyLogic",
     type: "function",
     stateMutability: "view",
-    inputs: [
-      { name: "deployer", type: "address" },
-      { name: "salt", type: "uint256" },
-    ],
+    inputs: [],
     outputs: [{ type: "address" }],
   },
   {
