@@ -1,0 +1,8 @@
+[package]
+name = "realclanker"
+edition = "2024.beta"
+
+[dependencies]
+
+[addresses]
+realclanker = "0x0"
