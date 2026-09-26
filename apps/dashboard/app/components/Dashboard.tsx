@@ -445,6 +445,9 @@ export function Dashboard() {
             <li className="miss">no World ID</li>
             <li className="deny">denied</li>
           </ul>
+          <button className="replay" type="button" onClick={() => setReplay((value) => value + 1)} disabled={history.length === 0}>
+            Replay purchases
+          </button>
           {concert?.backdrop ? (
             <video
               key={`${concert.id}-${concert.backdrop.updatedAt}`}
@@ -565,12 +568,7 @@ export function Dashboard() {
             <div><strong>{counts.WORLD_ID_NOT_DETECTED}</strong><span className="miss">undetected</span></div>
             <div><strong>{counts.PURCHASE_DENIED}</strong><span className="deny">denied</span></div>
           </div>
-          <div className="history-bar">
-            <h2>History</h2>
-            <button className="ghost" type="button" onClick={() => setReplay((value) => value + 1)} disabled={history.length === 0}>
-              Replay sale
-            </button>
-          </div>
+          <h2>History</h2>
           {history.length > 0 ? (
             <ul className="feed">
               {history.map((attempt, index) => (

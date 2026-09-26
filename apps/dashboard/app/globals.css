@@ -191,6 +191,20 @@ button:disabled { opacity: 0.5; cursor: wait; }
   padding: 0;
   list-style: none;
 }
+.replay {
+  position: absolute;
+  z-index: 4;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 14px;
+  border: 1px solid var(--gold);
+  border-radius: 999px;
+  background: #14110c;
+  color: var(--gold);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 12px;
+}
 .legend li, .pill {
   font-family: "IBM Plex Mono", monospace;
   font-size: 11px;
