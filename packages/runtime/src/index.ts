@@ -26,7 +26,7 @@ config({ path: path.join(repoRoot(), ".env") });
 
 const nid = (prefix: string) => `${prefix}_${randomBytes(6).toString("hex")}`;
 
-export function snapshot(): State & { devMode: boolean } {
+export function snapshot(): State & { devMode: boolean; hosted: boolean } {
   return { ...readState(), devMode: devMode(), hosted: Boolean(process.env.VERCEL) };
 }
 
