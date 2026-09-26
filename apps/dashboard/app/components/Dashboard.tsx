@@ -129,22 +129,31 @@ export function Dashboard() {
 
   useEffect(() => {
     let stop = false;
+    let pending = false;
+    const controller = new AbortController();
     const pull = async () => {
-      const response = await fetch("/api/state", { cache: "no-store" });
-      if (stop) return;
-      if (!response.ok) {
+      if (pending) return;
+      pending = true;
+      try {
+        const response = await fetch("/api/state", { cache: "no-store", signal: controller.signal });
+        if (!response.ok) throw new Error(`State request failed: ${response.status}`);
+        const next = (await response.json()) as Snapshot;
+        if (stop) return;
+        setLoadError("");
+        setData(next);
+      } catch {
+        if (stop) return;
         setLoadError("Concerts could not be loaded.");
-        return;
+      } finally {
+        pending = false;
       }
-      const next = (await response.json()) as Snapshot;
-      setLoadError("");
-      setData(next);
     };
     void pull();
     const timer = window.setInterval(() => void pull(), 1500);
     return () => {
       stop = true;
       window.clearInterval(timer);
+      controller.abort();
     };
   }, []);
 
@@ -329,6 +338,8 @@ export function Dashboard() {
           {data?.devMode ? <span>sandbox</span> : null}
         </p>
       </header>
+
+      {loadError && data ? <p className="error" role="alert">{loadError} Retrying…</p> : null}
 
       <section className="layout">
         <aside className="panel controls">
