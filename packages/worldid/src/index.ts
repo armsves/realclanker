@@ -83,12 +83,21 @@ async function clientAssertion(tokenEndpoint: string): Promise<Record<string, st
   };
 }
 
+export type WorldIdClaims = {
+  iss: string;
+  sub: string;
+  aud?: string;
+  iat?: number;
+  exp?: number;
+  nonce?: string;
+};
+
 export async function exchangeCode(input: {
   code: string;
   redirectUri: string;
   codeVerifier: string;
   nonce: string;
-}): Promise<{ sub: string; issuer: string }> {
+}): Promise<{ sub: string; issuer: string; idToken: string; claims: WorldIdClaims }> {
   const metadata = await discover();
   const clientId = process.env.WORLD_ID_CLIENT_ID;
   if (!clientId) throw new Error("WORLD_ID_CLIENT_ID is not set.");
@@ -108,13 +117,20 @@ export async function exchangeCode(input: {
   if (!response.ok || !payload.id_token) {
     throw new Error(payload.error || `Token exchange failed (${response.status}).`);
   }
-  return verifyIdToken(payload.id_token, input.nonce);
+  const verified = await verifyIdToken(payload.id_token, input.nonce);
+  return { ...verified, idToken: payload.id_token };
+}
+
+function claimString(value: unknown): string | undefined {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value) && typeof value[0] === "string") return value[0];
+  return undefined;
 }
 
 export async function verifyIdToken(
   idToken: string,
   nonce?: string,
-): Promise<{ sub: string; issuer: string }> {
+): Promise<{ sub: string; issuer: string; claims: WorldIdClaims }> {
   const metadata = await discover();
   const clientId = process.env.WORLD_ID_CLIENT_ID;
   if (!clientId) throw new Error("WORLD_ID_CLIENT_ID is not set.");
@@ -127,5 +143,13 @@ export async function verifyIdToken(
     throw new Error("World ID nonce did not match.");
   }
   if (!payload.sub) throw new Error("World ID token has no subject.");
-  return { sub: payload.sub, issuer: metadata.issuer };
+  const claims: WorldIdClaims = {
+    iss: metadata.issuer,
+    sub: payload.sub,
+    aud: claimString(payload.aud),
+    iat: typeof payload.iat === "number" ? payload.iat : undefined,
+    exp: typeof payload.exp === "number" ? payload.exp : undefined,
+    nonce: typeof payload.nonce === "string" ? payload.nonce : undefined,
+  };
+  return { sub: payload.sub, issuer: metadata.issuer, claims };
 }

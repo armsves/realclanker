@@ -123,21 +123,26 @@ button:disabled { opacity: 0.5; cursor: wait; }
 .used { color: var(--used); }
 .miss { color: var(--miss); }
 .deny { color: var(--deny); }
+.panel.archive { overflow: hidden; }
 .shows {
   list-style: none;
   margin: 0 0 6px;
-  padding: 0;
+  padding: 4px;
   display: grid;
   gap: 4px;
-  max-height: 168px;
+  align-content: start;
+  flex: 1 1 0;
+  min-height: 148px;
+  max-height: 46%;
   overflow: auto;
-  flex: none;
+  border: 1px solid var(--line);
+  border-radius: 12px;
 }
 .shows button {
   width: 100%;
   text-align: left;
   background: #0e0c0a;
-  border: 1px solid var(--line);
+  border: 1px solid transparent;
   border-radius: 10px;
   padding: 6px 8px;
 }
@@ -149,6 +154,22 @@ button:disabled { opacity: 0.5; cursor: wait; }
   font-family: "IBM Plex Mono", monospace;
   font-size: 11px;
   line-height: 1.35;
+}
+.receipt {
+  margin: 0 0 8px;
+  padding: 8px;
+  max-height: 160px;
+  overflow: auto;
+  flex: none;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #0e0c0a;
+  color: var(--ink);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 .counts { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px; flex: none; }
 .counts div {
@@ -191,6 +212,14 @@ button:disabled { opacity: 0.5; cursor: wait; }
   background: #2a241c;
 }
 .feed strong, .feed em, .feed p, .feed code { display: block; }
+.links { display: flex; flex-wrap: wrap; gap: 6px 10px; margin: 0 0 6px; }
+.links a, .feed a {
+  color: var(--gold);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  text-decoration: none;
+}
+.links a:hover, .feed a:hover { text-decoration: underline; }
 .feed strong { font-size: 11px; font-family: "IBM Plex Mono", monospace; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .feed em { font-style: normal; font-size: 10px; margin: 1px 0; }
 .feed p, .feed code { margin: 0; color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

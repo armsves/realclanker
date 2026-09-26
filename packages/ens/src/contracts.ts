@@ -240,6 +240,16 @@ export const usdcAbi = [
 
 export const resolverAbi = [
   {
+    name: "text",
+    type: "function",
+    stateMutability: "view",
+    inputs: [
+      { name: "node", type: "bytes32" },
+      { name: "key", type: "string" },
+    ],
+    outputs: [{ type: "string" }],
+  },
+  {
     name: "setText",
     type: "function",
     stateMutability: "nonpayable",

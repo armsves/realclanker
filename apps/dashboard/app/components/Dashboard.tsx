@@ -18,6 +18,7 @@ type Concert = {
   saleStartsAt?: number;
   saleEndsAt: number;
   createdAt?: number;
+  suiPoolId?: string;
 };
 
 type Attempt = Racer & {
@@ -26,8 +27,30 @@ type Attempt = Racer & {
   reason: string;
   ticketHash?: string;
   suiObjectId?: string;
+  suiAddress?: string;
   settlement: string;
   at: number;
+};
+
+type Grant = {
+  id: string;
+  worldIdSub: string;
+  issuer: string;
+  ensName: string;
+  concertId: string;
+  maxTickets: number;
+  expiresAt: number;
+  issuedAt: number;
+  source: "oidc" | "dev";
+  idToken?: string;
+  claims?: {
+    iss: string;
+    sub: string;
+    aud?: string;
+    iat?: number;
+    exp?: number;
+    nonce?: string;
+  };
 };
 
 type Snapshot = {
@@ -37,7 +60,17 @@ type Snapshot = {
   mcpUrl?: string;
   concerts: Concert[];
   attempts: Attempt[];
-  grants: { id: string }[];
+  grants: Grant[];
+  agents: {
+    ensName: string;
+    evmAddress?: string;
+    suiAddress?: string;
+    chainWrite: string;
+    chainWriteError?: string;
+    ensRecordTx?: string;
+    ensMintTx?: string;
+    records: Record<string, string>;
+  }[];
 };
 
 type AttackSummary = {
@@ -121,6 +154,11 @@ export function Dashboard() {
   );
   const history = useMemo(() => [...attempts].sort((a, b) => a.at - b.at), [attempts]);
   const counts = countOutcomes(attempts);
+  const proof = useMemo(() => {
+    return (data?.grants ?? [])
+      .filter((grant) => concert && grant.concertId === concert.id && grant.source === "oidc" && grant.idToken)
+      .sort((a, b) => b.issuedAt - a.issuedAt)[0];
+  }, [data, concert]);
 
   async function createConcert(event: React.FormEvent) {
     event.preventDefault();
@@ -338,12 +376,12 @@ export function Dashboard() {
           />
         </section>
 
-        <aside className="panel">
-          <h2>Shows</h2>
+        <aside className="panel archive">
+          <h2>Concerts</h2>
           {data && data.concerts.length > 0 ? (
             <ul className="shows">
               {data.concerts.map((item) => {
-                const status = saleStatus(item);
+                const attemptCount = (data.attempts ?? []).filter((attempt) => attempt.concertId === item.id).length;
                 return (
                   <li key={item.id}>
                     <button
@@ -353,7 +391,7 @@ export function Dashboard() {
                     >
                       <strong>{item.name}</strong>
                       <span>
-                        {item.venue} · {item.sold}/{item.supply} · {status}
+                        {saleStatus(item)} · {item.sold}/{item.supply} · {attemptCount} attempts
                       </span>
                       <span>
                         {when(item.saleStartsAt ?? item.createdAt ?? item.saleEndsAt)} → {when(item.saleEndsAt)}
@@ -366,7 +404,51 @@ export function Dashboard() {
           ) : (
             <p className="note">{loadError || (data ? "No concerts yet." : "Loading concerts…")}</p>
           )}
-          <h2>Gate</h2>
+          <h2>World ID</h2>
+          {proof ? (
+            <pre className="receipt">
+              {JSON.stringify(
+                {
+                  claims: proof.claims,
+                  send: {
+                    tool: "issue_grant",
+                    ensName: proof.ensName,
+                    concertId: proof.concertId,
+                    maxTickets: proof.maxTickets,
+                    expiresAt: proof.expiresAt,
+                    idToken: proof.idToken,
+                  },
+                  ens: {
+                    name: proof.ensName,
+                    tx: data?.agents?.find((agent) => agent.ensName === proof.ensName)?.ensRecordTx,
+                    records: data?.agents?.find((agent) => agent.ensName === proof.ensName)?.records,
+                  },
+                },
+                null,
+                2,
+              )}
+            </pre>
+          ) : (
+            <p className="note">
+              Verify a human for this concert. World returns an ID token, and that token is what the agent sends to issue_grant.
+            </p>
+          )}
+          {proof ? <ExplorerLinks links={proofLinks(proof, data?.agents)} /> : null}
+          <h2>Status</h2>
+          {concert ? (
+            <>
+              <p className="rules">
+                {concert.name} · {concert.venue} · {saleStatus(concert)} · {concert.sold}/{concert.supply} sold
+                <br />
+                {when(concert.saleStartsAt ?? concert.createdAt ?? concert.saleEndsAt)} → {when(concert.saleEndsAt)}
+              </p>
+              {concert.suiPoolId ? (
+                <ExplorerLinks links={[{ label: "Sui pool", href: suiObject(concert.suiPoolId) }]} />
+              ) : null}
+            </>
+          ) : (
+            <p className="note">Select a concert.</p>
+          )}
           <div className="counts">
             <div><strong>{counts.PURCHASE_COMPLETE}</strong><span className="ok">purchased</span></div>
             <div><strong>{counts.IDENTITY_ALREADY_USED}</strong><span className="used">already used</span></div>
@@ -374,29 +456,53 @@ export function Dashboard() {
             <div><strong>{counts.PURCHASE_DENIED}</strong><span className="deny">denied</span></div>
           </div>
           <div className="history-bar">
-            <h2>Sale history</h2>
+            <h2>History</h2>
             <button className="ghost" type="button" onClick={() => setReplay((value) => value + 1)} disabled={history.length === 0}>
               Replay sale
             </button>
           </div>
-          <p className="note">Saved attempts for this concert, in the order they happened. Replay runs that record again.</p>
-          <ul className="feed">
-            {history.map((attempt, index) => (
-              <li key={attempt.id}>
-                <EnsHead name={attempt.ensName} />
-                <div>
-                  <strong>
-                    {index + 1}. {attempt.ensName}
-                  </strong>
-                  <em className={tone(attempt.outcome)}>{attempt.outcome}</em>
-                  <p>{attempt.reason}</p>
-                  <code>
-                    {clock(attempt.at)} · {settlementLabel(attempt)}
-                  </code>
-                </div>
-              </li>
-            ))}
-          </ul>
+          {history.length > 0 ? (
+            <ul className="feed">
+              {history.map((attempt, index) => (
+                <li key={attempt.id}>
+                  <EnsHead name={attempt.ensName} />
+                  <div>
+                    <strong>
+                      {index + 1}.{" "}
+                      <a href={ensNameUrl(attempt.ensName)} target="_blank" rel="noreferrer">
+                        {attempt.ensName}
+                      </a>
+                    </strong>
+                    <em className={tone(attempt.outcome)}>{attempt.outcome}</em>
+                    <p>{attempt.reason}</p>
+                    <code>
+                      {clock(attempt.at)}
+                      {attempt.settlement === "sui" && attempt.suiObjectId ? (
+                        <>
+                          {" · "}
+                          <a href={suiObject(attempt.suiObjectId)} target="_blank" rel="noreferrer">
+                            ticket
+                          </a>
+                        </>
+                      ) : (
+                        <> · {settlementLabel(attempt)}</>
+                      )}
+                      {attempt.suiAddress ? (
+                        <>
+                          {" · "}
+                          <a href={suiAccount(attempt.suiAddress)} target="_blank" rel="noreferrer">
+                            wallet
+                          </a>
+                        </>
+                      ) : null}
+                    </code>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="note">No attempts for this concert.</p>
+          )}
         </aside>
       </section>
     </main>
@@ -442,6 +548,52 @@ function saleStatus(concert: Concert) {
 
 function clock(at: number) {
   return new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function ExplorerLinks({ links }: { links: { label: string; href: string }[] }) {
+  if (links.length === 0) return null;
+  return (
+    <p className="links">
+      {links.map((link) => (
+        <a key={link.href + link.label} href={link.href} target="_blank" rel="noreferrer">
+          {link.label}
+        </a>
+      ))}
+    </p>
+  );
+}
+
+function proofLinks(
+  proof: Grant,
+  agents: Snapshot["agents"] | undefined,
+): { label: string; href: string }[] {
+  const agent = agents?.find((item) => item.ensName === proof.ensName);
+  const links = [{ label: "ENS name", href: ensNameUrl(proof.ensName) }];
+  if (agent?.ensMintTx) links.push({ label: "ENS mint", href: sepoliaTx(agent.ensMintTx) });
+  if (agent?.ensRecordTx) links.push({ label: "ENS record", href: sepoliaTx(agent.ensRecordTx) });
+  if (agent?.evmAddress) links.push({ label: "EVM wallet", href: sepoliaAddress(agent.evmAddress) });
+  if (agent?.suiAddress) links.push({ label: "Sui wallet", href: suiAccount(agent.suiAddress) });
+  return links;
+}
+
+function ensNameUrl(name: string) {
+  return `https://sepolia.app.ens.domains/${name}`;
+}
+
+function sepoliaTx(hash: string) {
+  return `https://sepolia.etherscan.io/tx/${hash}`;
+}
+
+function sepoliaAddress(address: string) {
+  return `https://sepolia.etherscan.io/address/${address}`;
+}
+
+function suiObject(id: string) {
+  return `https://suiscan.xyz/devnet/object/${id}`;
+}
+
+function suiAccount(address: string) {
+  return `https://suiscan.xyz/devnet/account/${address}`;
 }
 
 function settlementLabel(attempt: Attempt) {

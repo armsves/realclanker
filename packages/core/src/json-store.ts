@@ -103,7 +103,22 @@ async function readRedis<T>(name: string, fallback: T): Promise<T> {
   return JSON.parse(raw) as T;
 }
 
+let redisWrites: Promise<unknown> = Promise.resolve();
+
+function enqueueRedisWrite<T>(work: () => Promise<T>): Promise<T> {
+  const run = redisWrites.then(work, work);
+  redisWrites = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
 async function withRedis<T, R>(name: string, fallback: T, mutate: (value: T) => R): Promise<R> {
+  return enqueueRedisWrite(() => writeRedis(name, fallback, mutate));
+}
+
+async function writeRedis<T, R>(name: string, fallback: T, mutate: (value: T) => R): Promise<R> {
   const client = redis();
   const key = redisKey(name);
   for (let attempt = 0; attempt < 24; attempt++) {

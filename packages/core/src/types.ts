@@ -30,6 +30,8 @@ export type Agent = {
   avatarUrl: string;
   records: Record<string, string>;
   chainWrite: "written" | "skipped" | "failed";
+  chainWriteError?: string;
+  ensRecordTx?: string;
   ensMint?: "minted" | "owned" | "skipped" | "failed";
   ensMintTx?: string;
   ensMintError?: string;
@@ -47,6 +49,15 @@ export type Grant = {
   expiresAt: number;
   issuedAt: number;
   source: "oidc" | "dev";
+  idToken?: string;
+  claims?: {
+    iss: string;
+    sub: string;
+    aud?: string;
+    iat?: number;
+    exp?: number;
+    nonce?: string;
+  };
 };
 
 export type Attempt = {

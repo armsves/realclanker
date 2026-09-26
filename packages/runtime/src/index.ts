@@ -221,20 +221,24 @@ export async function issueGrant(input: {
   expiresAt: number;
   idToken?: string;
   devSubject?: string;
-  verified?: { sub: string; issuer: string };
+  verified?: { sub: string; issuer: string; idToken?: string; claims?: Grant["claims"] };
 }): Promise<Grant> {
   const ensName = input.ensName.trim().toLowerCase();
   let worldIdSub: string;
   let issuer: string;
   let source: Grant["source"];
+  let idToken = input.idToken;
+  let claims = input.verified?.claims;
   if (input.verified) {
     worldIdSub = input.verified.sub;
     issuer = input.verified.issuer;
     source = "oidc";
+    idToken = input.verified.idToken ?? idToken;
   } else if (input.idToken) {
     const verified = await verifyIdToken(input.idToken);
     worldIdSub = verified.sub;
     issuer = verified.issuer;
+    claims = verified.claims;
     source = "oidc";
   } else if (devMode() && input.devSubject) {
     worldIdSub = input.devSubject;
@@ -255,6 +259,8 @@ export async function issueGrant(input: {
     expiresAt: input.expiresAt,
     issuedAt: Date.now(),
     source,
+    idToken: source === "oidc" ? idToken : undefined,
+    claims: source === "oidc" ? claims : undefined,
   };
 
   await withState((state) => {
@@ -276,24 +282,53 @@ export async function issueGrant(input: {
     }
   });
 
-  void writeTextRecord({
-    ensName,
-    key: grantRecordKey(input.concertId),
-    value: JSON.stringify({
-      sub: worldIdSub,
-      permission: "ticket.buy",
-      maxTickets: grant.maxTickets,
-      expiresAt: grant.expiresAt,
-    }),
-  }).then(async (result) => {
-    await withState((state) => {
-      const agent = state.agents.find((item) => item.ensName === ensName);
-      if (!agent) return;
-      agent.chainWrite = result.wrote ? "written" : agent.chainWrite;
-    });
-  });
-
+  await publishIdentity(ensName, input.concertId);
   return grant;
+}
+
+export async function publishIdentity(ensName: string, concertId: string): Promise<void> {
+  const name = ensName.trim().toLowerCase();
+  const current = await readState();
+  const grant = [...current.grants].reverse().find((item) => item.ensName === name && item.concertId === concertId);
+  if (!grant) return;
+  const evm = await ensureAgentEvmWallet(name);
+  const minted = await mintEns(name, evm.address);
+  const record = JSON.stringify({
+    sub: grant.worldIdSub,
+    issuer: grant.issuer,
+    source: grant.source,
+    permission: grant.permission,
+    concertId,
+    maxTickets: grant.maxTickets,
+    expiresAt: grant.expiresAt,
+  });
+  const identity = JSON.stringify({
+    sub: grant.worldIdSub,
+    issuer: grant.issuer,
+    source: grant.source,
+  });
+  const grantWrite = await writeTextRecord({
+    ensName: name,
+    key: grantRecordKey(concertId),
+    value: record,
+  });
+  const identityWrite =
+    grant.source === "oidc"
+      ? await writeTextRecord({ ensName: name, key: "realclanker.id", value: identity })
+      : undefined;
+  const wrote = grantWrite.wrote && (identityWrite?.wrote ?? true);
+  await withState((state) => {
+    const agent = state.agents.find((item) => item.ensName === name);
+    if (!agent) return;
+    agent.records[grantRecordKey(concertId)] = record;
+    if (grant.source === "oidc") agent.records["realclanker.id"] = identity;
+    agent.chainWrite = wrote ? "written" : "failed";
+    agent.chainWriteError = grantWrite.error || identityWrite?.error;
+    agent.ensRecordTx = identityWrite?.txHash || grantWrite.txHash;
+    if (minted.txHash) agent.ensMintTx = minted.txHash;
+    agent.ensMint = minted.minted ? "minted" : minted.kind === "owned" ? "owned" : minted.error ? "failed" : agent.ensMint;
+    if (minted.error) agent.ensMintError = minted.error;
+  });
 }
 
 export async function buyTicket(ensName: string, concertId: string): Promise<Attempt> {
