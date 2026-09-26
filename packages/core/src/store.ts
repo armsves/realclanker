@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { seedState } from "./seed";
 import type { State } from "./types";
 
 const EMPTY: State = { concerts: [], agents: [], grants: [], attempts: [] };
@@ -16,8 +17,14 @@ export function repoRoot(): string {
   return process.cwd();
 }
 
+function dataDir() {
+  if (process.env.REALCLANKER_DATA) return process.env.REALCLANKER_DATA;
+  if (process.env.VERCEL) return path.join("/tmp", "realclanker");
+  return path.join(repoRoot(), ".data");
+}
+
 function locations() {
-  const dir = process.env.REALCLANKER_DATA || path.join(repoRoot(), ".data");
+  const dir = dataDir();
   fs.mkdirSync(dir, { recursive: true });
   return {
     file: path.join(dir, "state.json"),
@@ -25,8 +32,12 @@ function locations() {
   };
 }
 
+function blankState(): State {
+  return process.env.VERCEL ? structuredClone(seedState) : structuredClone(EMPTY);
+}
+
 function readFile(file: string): State {
-  if (!fs.existsSync(file)) return structuredClone(EMPTY);
+  if (!fs.existsSync(file)) return blankState();
   try {
     const parsed = JSON.parse(fs.readFileSync(file, "utf8")) as State;
     return {
@@ -36,7 +47,7 @@ function readFile(file: string): State {
       attempts: parsed.attempts ?? [],
     };
   } catch {
-    return structuredClone(EMPTY);
+    return blankState();
   }
 }
 

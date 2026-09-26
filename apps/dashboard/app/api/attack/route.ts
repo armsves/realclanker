@@ -5,6 +5,15 @@ import { devAuthorized } from "@realclanker/runtime";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
+  if (process.env.VERCEL) {
+    return Response.json(
+      {
+        error:
+          "The swarm runs on your machine, next to the MCP server. Clone the repo and use pnpm simulate.",
+      },
+      { status: 501 },
+    );
+  }
   if (!devAuthorized()) {
     return Response.json({ error: "The attack simulator is disabled." }, { status: 403 });
   }

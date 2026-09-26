@@ -28,6 +28,7 @@ type Attempt = Racer & {
 
 type Snapshot = {
   devMode: boolean;
+  hosted?: boolean;
   concerts: Concert[];
   attempts: Attempt[];
   grants: { id: string }[];
@@ -222,12 +223,19 @@ export function Dashboard() {
             <input value={agents} onChange={(event) => setAgents(event.target.value)} />
           </label>
           <div className="actions">
-            <button className="primary" type="button" onClick={launchAttack} disabled={!concert || busy === "attack"}>
+            <button
+              className="primary"
+              type="button"
+              onClick={launchAttack}
+              disabled={!concert || busy === "attack" || data?.hosted}
+            >
               {busy === "attack" ? "Racing…" : "Launch attack"}
             </button>
           </div>
           <p className="note">
-            About 20% carry a fresh World ID grant. The rest are duplicates, expired, scoped to another show, or have no human at all.
+            {data?.hosted
+              ? "This deployment shows a finished swarm. Run pnpm simulate locally to send a new one through the MCP server."
+              : "About 20% carry a fresh World ID grant. The rest are duplicates, expired, scoped to another show, or have no human at all."}
           </p>
           {error && <p className="error">{error}</p>}
         </aside>
