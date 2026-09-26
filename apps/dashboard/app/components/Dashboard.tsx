@@ -205,18 +205,23 @@ export function Dashboard() {
     setBusy("attack");
     setError("");
     setAttack(null);
-    const response = await fetch("/api/attack", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ concertId: concert.id, agents: Number(agents) }),
-    });
-    const body = await response.json();
-    setBusy("");
-    if (!response.ok) {
-      setError(body.error || "The swarm did not start.");
-      return;
+    try {
+      const response = await fetch("/api/attack", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ concertId: concert.id, agents: Number(agents) }),
+      });
+      const body = (await response.json().catch(() => ({}))) as { error?: string; summary?: AttackSummary };
+      if (!response.ok) {
+        setError(body.error || "The swarm did not finish. The stage keeps any agents that already landed.");
+        return;
+      }
+      setAttack(body.summary ?? null);
+    } catch {
+      setError("The swarm did not finish. The stage keeps any agents that already landed.");
+    } finally {
+      setBusy("");
     }
-    setAttack(body.summary ?? null);
   }
 
   async function mintEns() {
@@ -574,7 +579,15 @@ export function Dashboard() {
                   <div>
                     <strong>
                       {index + 1}.{" "}
-                      <a href={ensNameUrl(attempt.ensName)} target="_blank" rel="noreferrer">
+                      <a
+                        href={
+                          agentRecorded(data?.agents, attempt.ensName)
+                            ? ensRecords(attempt.ensName)
+                            : ensExplorer(attempt.ensName)
+                        }
+                        target="_blank"
+                        rel="noreferrer"
+                      >
                         {attempt.ensName}
                       </a>
                     </strong>
@@ -689,7 +702,10 @@ function proofLinks(
   agents: Snapshot["agents"] | undefined,
 ): { label: string; href: string }[] {
   const agent = agents?.find((item) => item.ensName === proof.ensName);
-  const links = [{ label: "ENS name", href: ensNameUrl(proof.ensName) }];
+  const links = [{ label: "ENS name", href: ensExplorer(proof.ensName) }];
+  if (agent?.ensRecordTx || agent?.chainWrite === "written") {
+    links.push({ label: "ENS identity", href: ensRecords(proof.ensName) });
+  }
   if (agent?.ensMintTx) links.push({ label: "ENS mint", href: sepoliaTx(agent.ensMintTx) });
   if (agent?.ensRecordTx) links.push({ label: "ENS record", href: sepoliaTx(agent.ensRecordTx) });
   if (agent?.evmAddress) links.push({ label: "EVM wallet", href: sepoliaAddress(agent.evmAddress) });
@@ -697,8 +713,17 @@ function proofLinks(
   return links;
 }
 
-function ensNameUrl(name: string) {
-  return `https://sepolia.app.ens.domains/${name}`;
+function ensExplorer(name: string) {
+  return `https://explorer.ens.dev/${name}`;
+}
+
+function ensRecords(name: string) {
+  return `https://explorer.ens.dev/${name}/records`;
+}
+
+function agentRecorded(agents: Snapshot["agents"] | undefined, ensName: string) {
+  const agent = agents?.find((item) => item.ensName === ensName);
+  return Boolean(agent?.ensRecordTx || agent?.chainWrite === "written");
 }
 
 function sepoliaTx(hash: string) {

@@ -87,15 +87,23 @@ function splitName(ensName: string): { kind: "eth"; label: string } | { kind: "s
   throw new Error(`Mint a .eth name, or a subname of ${parent}.`);
 }
 
-export async function mintEns(ensName: string, owner: Address): Promise<EnsMint> {
+export async function mintEns(
+  ensName: string,
+  owner: Address,
+  options?: { pointAddress?: boolean },
+): Promise<EnsMint> {
   const name = ensName.trim().toLowerCase();
   if (!process.env.SEPOLIA_RPC_URL) {
     return { minted: false, owner, kind: "skipped", error: "Set SEPOLIA_RPC_URL to mint on Sepolia." };
   }
-  return enqueuePlatform(() => mintQueued(name, getAddress(owner)));
+  return enqueuePlatform(() => mintQueued(name, getAddress(owner), options));
 }
 
-async function mintQueued(ensName: string, owner: Address): Promise<EnsMint> {
+async function mintQueued(
+  ensName: string,
+  owner: Address,
+  options?: { pointAddress?: boolean },
+): Promise<EnsMint> {
   try {
     const parsed = splitName(ensName);
     const account = platformAccount();
@@ -112,8 +120,8 @@ async function mintQueued(ensName: string, owner: Address): Promise<EnsMint> {
         error: `Platform wallet ${account.address} needs Sepolia ETH for gas.`,
       };
     }
-    if (parsed.kind === "eth") return await registerEth(ensName, parsed.label, owner);
-    return await registerSubname(ensName, parsed.label, parsed.parentLabel, owner);
+  if (parsed.kind === "eth") return await registerEth(ensName, parsed.label, owner, options);
+  return await registerSubname(ensName, parsed.label, parsed.parentLabel, owner, options);
   } catch (error) {
     return { minted: false, owner, kind: "skipped", error: short(error) };
   }
@@ -135,7 +143,12 @@ async function readOwner(registry: Address, label: string): Promise<Address | un
   }
 }
 
-async function registerEth(ensName: string, label: string, owner: Address): Promise<EnsMint> {
+async function registerEth(
+  ensName: string,
+  label: string,
+  owner: Address,
+  options?: { pointAddress?: boolean },
+): Promise<EnsMint> {
   const clients = sepoliaClients(platformAccount())!;
   const available = await clients.publicClient.readContract({
     address: ETH_REGISTRAR,
@@ -168,7 +181,7 @@ async function registerEth(ensName: string, label: string, owner: Address): Prom
     resolver: PUBLIC_RESOLVER,
     duration,
   });
-  await pointAddress(ensName, owner);
+  if (options?.pointAddress !== false) await pointAddress(ensName, owner);
   return { minted: true, owner, kind: "eth", txHash };
 }
 
@@ -177,6 +190,7 @@ async function registerSubname(
   label: string,
   parentLabel: string,
   owner: Address,
+  options?: { pointAddress?: boolean },
 ): Promise<EnsMint> {
   const registry = await ensureParentRegistry(parentLabel);
   const current = await readOwner(registry, label);
@@ -203,7 +217,7 @@ async function registerSubname(
   });
   const receipt = await clients.publicClient.waitForTransactionReceipt({ hash });
   if (receipt.status !== "success") throw new Error("Subname registration reverted.");
-  await pointAddress(ensName, owner);
+  if (options?.pointAddress !== false) await pointAddress(ensName, owner);
   return { minted: true, owner, kind: "subname", txHash: hash };
 }
 

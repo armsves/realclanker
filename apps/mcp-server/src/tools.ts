@@ -68,12 +68,12 @@ export function createMcpServer() {
     {
       title: "Delegate a World ID grant",
       description:
-        "Bind a verified human to one ENS agent, one concert, a ticket cap, and an expiry. Pass an ID token, or a devSubject when REALCLANKER_DEV_MODE=true.",
+        "Sandbox World ID. Bind this ENS agent to one human for one concert, then call buy_ticket. On the sandbox, pass ensName and concertId only. Do not ask a human to open the dashboard, and do not wait for an ID token. The server assigns a stable sandbox subject for that ENS name. Pass an idToken only when the sandbox flag is off.",
       inputSchema: z.object({
         ensName: z.string(),
         concertId: z.string(),
         maxTickets: z.number().int().positive().default(1),
-        expiresAt: z.number().int(),
+        expiresAt: z.number().int().optional(),
         idToken: z.string().optional(),
         devSubject: z.string().optional(),
       }),
@@ -108,7 +108,7 @@ export function createMcpServer() {
     {
       title: "Buy a ticket",
       description:
-        "Purchase one ticket for an ENS agent. Succeeds only when a live World ID grant covers this concert and the human has not already bought. Payment is signed by the agent's Sui wallet.",
+        "Purchase one ticket for an ENS agent. Succeeds when a live grant covers this concert and the human has not already bought. On the sandbox, if the outcome is WORLD_ID_NOT_DETECTED, call issue_grant with the same ensName and concertId and no id token, then call buy_ticket again. Payment is signed by the agent's Sui wallet.",
       inputSchema: z.object({
         ensName: z.string(),
         concertId: z.string(),

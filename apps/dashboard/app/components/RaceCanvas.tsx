@@ -107,21 +107,6 @@ export function RaceCanvas({
       ctx.clearRect(0, 0, width, height);
 
       const pool = poolLayout(width, height);
-      const jail = { x: 16, y: height - 168, w: width - 32, h: 150 };
-      const cols = Math.max(3, Math.floor((jail.w - 20) / 120));
-
-      ctx.fillStyle = "rgba(90, 18, 34, 0.45)";
-      ctx.strokeStyle = "rgba(255, 93, 115, 0.8)";
-      ctx.lineWidth = 1.5;
-      roundRect(ctx, jail.x, jail.y, jail.w, jail.h, 18);
-      ctx.fill();
-      ctx.stroke();
-      ctx.fillStyle = "#ffb3c0";
-      ctx.font = "600 12px Outfit, sans-serif";
-      ctx.fillText("JAIL", jail.x + 16, jail.y + 24);
-      ctx.font = "11px 'IBM Plex Mono', monospace";
-      ctx.fillStyle = "#f7c2cb";
-      ctx.fillText("no grant · duplicate · expired", jail.x + 16, jail.y + 42);
 
       const glow = ctx.createRadialGradient(pool.x, pool.y, 10, pool.x, pool.y, pool.r * 2.4);
       glow.addColorStop(0, "rgba(244, 241, 234, 0.2)");
@@ -146,15 +131,9 @@ export function RaceCanvas({
       const label = meta.current.title || "Ticket pool";
       paintPoolLabel(ctx, pool.x, pool.y, label.slice(0, 18), `${meta.current.sold}/${meta.current.supply || 0}`);
 
-      let jailCursor = 0;
       for (const swimmer of swimmers) {
-        const before = swimmer.stage;
-        step(swimmer, pool, jail, cols, dt);
-        if (before !== "jail" && before !== "jailed" && (swimmer.stage === "jail" || swimmer.stage === "jailed") && swimmer.jailIndex < 0) {
-          swimmer.jailIndex = jailCursor;
-        }
-        if (swimmer.jailIndex >= 0) jailCursor = Math.max(jailCursor, swimmer.jailIndex + 1);
-        if (swimmer.stage === "done") continue;
+        step(swimmer, pool, dt);
+        if (swimmer.stage === "done" || swimmer.stage === "jail" || swimmer.stage === "jailed") continue;
         drawSwimmer(ctx, swimmer);
       }
 
@@ -169,15 +148,56 @@ export function RaceCanvas({
     };
   }, []);
 
-  return <canvas ref={canvasRef} aria-label="Agents racing toward the ticket pool" />;
+  const jailed = racers.filter((racer) => racer.outcome !== "PURCHASE_COMPLETE");
+
+  return (
+    <>
+      <canvas ref={canvasRef} aria-label="Agents racing toward the ticket pool" />
+      <aside className="stage-jail">
+        <h3>Jail</h3>
+        <p>no grant · duplicate · expired</p>
+        {jailed.length === 0 ? (
+          <p className="empty">Nobody is in jail.</p>
+        ) : (
+          <ul>
+            {jailed.map((racer) => (
+              <li key={racer.id}>
+                <a href={ensExplorer(racer.ensName)} target="_blank" rel="noreferrer">
+                  <span className="jail-mark" style={{ background: ensColor(racer.ensName) }} />
+                  <span className="jail-name">{racer.ensName}</span>
+                  <span className={`jail-why ${jailTone(racer.outcome)}`}>{jailReason(racer.outcome)}</span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        )}
+      </aside>
+    </>
+  );
+}
+
+function ensExplorer(name: string) {
+  return `https://explorer.ens.dev/${name}`;
+}
+
+function jailReason(outcome: Outcome) {
+  if (outcome === "IDENTITY_ALREADY_USED") return "duplicate";
+  if (outcome === "WORLD_ID_NOT_DETECTED") return "no grant";
+  return "denied";
+}
+
+function jailTone(outcome: Outcome) {
+  if (outcome === "IDENTITY_ALREADY_USED") return "used";
+  if (outcome === "WORLD_ID_NOT_DETECTED") return "miss";
+  return "deny";
 }
 
 function poolLayout(width: number, height: number) {
-  const jailTop = height - 176;
+  const laneBottom = height * 0.58;
   return {
     x: width * 0.5,
-    y: Math.max(96, jailTop * 0.5),
-    r: Math.min(112, width * 0.16, Math.max(72, jailTop * 0.24)),
+    y: Math.max(96, laneBottom * 0.48),
+    r: Math.min(112, width * 0.16, Math.max(72, laneBottom * 0.22)),
   };
 }
 
@@ -193,8 +213,8 @@ function spawnPoint(width: number, height: number, index: number) {
   if (ux < -0.02) reach = Math.min(reach, (12 - cx) / ux);
   if (uy > 0.02) reach = Math.min(reach, (height - 12 - cy) / uy);
   if (uy < -0.02) reach = Math.min(reach, (12 - cy) / uy);
-  const jailTop = height - 176;
-  if (uy > 0.02) reach = Math.min(reach, (jailTop - cy) / uy);
+  const laneBottom = height * 0.58;
+  if (uy > 0.02) reach = Math.min(reach, (laneBottom - cy) / uy);
   const dist = Math.max(96, Math.min(reach - 16, reach - 108));
   const jitter = ((index * 17) % 11) - 5;
   return {
@@ -204,13 +224,7 @@ function spawnPoint(width: number, height: number, index: number) {
   };
 }
 
-function step(
-  swimmer: Swimmer,
-  egg: { x: number; y: number; r: number },
-  jail: { x: number; y: number; w: number; h: number },
-  cols: number,
-  dt: number,
-) {
+function step(swimmer: Swimmer, egg: { x: number; y: number; r: number }, dt: number) {
   swimmer.phase += dt * 0.01;
   if (swimmer.stage === "approach" || swimmer.stage === "gate") {
     const dx = egg.x - swimmer.x;
@@ -226,7 +240,7 @@ function step(
     if (swimmer.stage === "gate") {
       swimmer.gate += dt;
       if (swimmer.gate > 380) {
-        swimmer.stage = swimmer.outcome === "PURCHASE_COMPLETE" ? "enter" : "jail";
+        swimmer.stage = swimmer.outcome === "PURCHASE_COMPLETE" ? "enter" : "done";
       }
     }
   } else if (swimmer.stage === "enter") {
@@ -234,16 +248,6 @@ function step(
     swimmer.y += (egg.y - swimmer.y) * 0.12;
     swimmer.scale *= 0.94;
     if (swimmer.scale < 0.08) swimmer.stage = "done";
-  } else if (swimmer.stage === "jail" || swimmer.stage === "jailed") {
-    const index = Math.max(0, swimmer.jailIndex);
-    const col = index % cols;
-    const row = Math.floor(index / cols);
-    const cell = (jail.w - 36) / cols;
-    const point = { x: jail.x + 18 + col * cell + cell / 2, y: jail.y + 72 + row * 38 };
-    swimmer.x += (point.x - swimmer.x) * 0.08;
-    swimmer.y += (point.y - swimmer.y) * 0.08;
-    swimmer.angle = lerpAngle(swimmer.angle, 0, 0.15);
-    if (Math.hypot(point.x - swimmer.x, point.y - swimmer.y) < 8) swimmer.stage = "jailed";
   }
 }
 
@@ -251,17 +255,6 @@ function drawSwimmer(ctx: CanvasRenderingContext2D, swimmer: Swimmer) {
   const color = COLOR[swimmer.outcome];
   const name = swimmer.ensName.replace(".realclanker.eth", "");
   const head = ensColor(swimmer.ensName);
-  if (swimmer.stage === "jailed") {
-    ctx.save();
-    ctx.translate(swimmer.x, swimmer.y);
-    drawEnsHead(ctx, 0, 0, 14, head);
-    ctx.fillStyle = color;
-    ctx.font = "10px 'IBM Plex Mono', monospace";
-    ctx.textAlign = "center";
-    ctx.fillText(name.slice(0, 14), 0, 24);
-    ctx.restore();
-    return;
-  }
   ctx.save();
   ctx.translate(swimmer.x, swimmer.y);
   ctx.rotate(swimmer.angle);

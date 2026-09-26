@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { buyTicket, createConcert, issueGrant, registerAgent } from "@realclanker/runtime";
 
 const ADJECTIVES = ["swift", "silent", "amber", "neon", "velvet", "lunar", "rapid", "bold", "quiet", "wild"];
@@ -6,45 +7,50 @@ const ANIMALS = ["otter", "fox", "crane", "moth", "wolf", "heron", "koi", "lynx"
 type Kind = "valid" | "duplicate" | "expired" | "wrong" | "bare";
 type Plan = { ensName: string; kind: Kind; subject?: string };
 
-function ensName(index: number) {
+function ensName(index: number, wave: string) {
   const adjective = ADJECTIVES[index % ADJECTIVES.length];
   const animal = ANIMALS[Math.floor(index / ADJECTIVES.length) % ANIMALS.length];
-  return `${adjective}-${animal}-${index}.realclanker.eth`;
+  return `${adjective}-${animal}-${wave}-${index}.realclanker.eth`;
 }
 
 function planSwarm(total: number): Plan[] {
-  const validCount = Math.max(1, Math.round(total * 0.2));
-  const duplicates = Math.max(1, Math.round(total * 0.16));
-  const expired = Math.max(1, Math.round(total * 0.12));
-  const wrong = Math.max(1, Math.round(total * 0.12));
-  const bare = Math.max(0, total - validCount - duplicates - expired - wrong);
+  const wave = randomBytes(3).toString("hex");
+  const validCount = Math.min(total, Math.max(2, Math.round(total * 0.2)));
+  const rest = total - validCount;
+  const duplicates = Math.min(rest, Math.max(rest > 0 ? 1 : 0, Math.round(total * 0.16)));
+  const expired = Math.min(rest - duplicates, Math.max(rest - duplicates > 0 ? 1 : 0, Math.round(total * 0.12)));
+  const wrong = Math.min(
+    rest - duplicates - expired,
+    Math.max(rest - duplicates - expired > 0 ? 1 : 0, Math.round(total * 0.12)),
+  );
+  const bare = rest - duplicates - expired - wrong;
   const plans: Plan[] = [];
   const subjects: string[] = [];
   let cursor = 0;
   for (let i = 0; i < validCount; i += 1) {
-    const subject = `dev:human-${i}`;
+    const subject = `sandbox:${wave}-human-${i}`;
     subjects.push(subject);
-    plans.push({ ensName: ensName(cursor), kind: "valid", subject });
+    plans.push({ ensName: ensName(cursor, wave), kind: "valid", subject });
     cursor += 1;
   }
   for (let i = 0; i < duplicates; i += 1) {
     plans.push({
-      ensName: ensName(cursor),
+      ensName: ensName(cursor, wave),
       kind: "duplicate",
       subject: subjects[i % subjects.length],
     });
     cursor += 1;
   }
   for (let i = 0; i < expired; i += 1) {
-    plans.push({ ensName: ensName(cursor), kind: "expired", subject: `dev:expired-${i}` });
+    plans.push({ ensName: ensName(cursor, wave), kind: "expired", subject: `sandbox:${wave}-expired-${i}` });
     cursor += 1;
   }
   for (let i = 0; i < wrong; i += 1) {
-    plans.push({ ensName: ensName(cursor), kind: "wrong", subject: `dev:wrong-${i}` });
+    plans.push({ ensName: ensName(cursor, wave), kind: "wrong", subject: `sandbox:${wave}-wrong-${i}` });
     cursor += 1;
   }
   for (let i = 0; i < bare; i += 1) {
-    plans.push({ ensName: ensName(cursor), kind: "bare" });
+    plans.push({ ensName: ensName(cursor, wave), kind: "bare" });
     cursor += 1;
   }
   return plans;
@@ -73,14 +79,17 @@ export async function runSwarm(input: { agents: number; concertId: string }) {
       maxTickets: 1,
       expiresAt: plan.kind === "expired" ? now - 60_000 : now + 15 * 60_000,
       devSubject: plan.subject,
+      publish: false,
     });
   }
   const attempts = await Promise.all(
-    plans.map((plan) => buyTicket(plan.ensName, input.concertId)),
+    plans.map((plan) => buyTicket(plan.ensName, input.concertId, { chain: false })),
   );
+  const winners = attempts.filter((item) => item.outcome === "PURCHASE_COMPLETE").slice(0, 2).map((item) => item.ensName);
   return {
     agents: total,
     concertId: input.concertId,
+    winners,
     PURCHASE_COMPLETE: attempts.filter((item) => item.outcome === "PURCHASE_COMPLETE").length,
     IDENTITY_ALREADY_USED: attempts.filter((item) => item.outcome === "IDENTITY_ALREADY_USED").length,
     WORLD_ID_NOT_DETECTED: attempts.filter((item) => item.outcome === "WORLD_ID_NOT_DETECTED").length,

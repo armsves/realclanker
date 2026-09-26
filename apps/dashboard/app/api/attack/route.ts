@@ -1,8 +1,9 @@
-import { devAuthorized } from "@realclanker/runtime";
+import { after } from "next/server";
+import { devAuthorized, publishIdentity } from "@realclanker/runtime";
 import { runSwarm } from "@realclanker/attack-simulator/swarm";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 export async function POST(request: Request) {
   if (!devAuthorized()) {
@@ -15,6 +16,12 @@ export async function POST(request: Request) {
   if (!concertId) return Response.json({ error: "Pick a concert first." }, { status: 400 });
   try {
     const summary = await runSwarm({ agents, concertId });
+    const winners = summary.winners ?? [];
+    after(async () => {
+      for (const ensName of winners) {
+        await publishIdentity(ensName, concertId, { pointAddress: false });
+      }
+    });
     return Response.json({ ok: true, summary });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Simulator failed.";

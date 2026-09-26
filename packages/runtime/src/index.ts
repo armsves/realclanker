@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import path from "node:path";
 import { config } from "dotenv";
 import {
@@ -298,9 +298,10 @@ export async function issueGrant(input: {
   ensName: string;
   concertId: string;
   maxTickets: number;
-  expiresAt: number;
+  expiresAt?: number;
   idToken?: string;
   devSubject?: string;
+  publish?: boolean;
   verified?: { sub: string; issuer: string; idToken?: string; claims?: Grant["claims"] };
 }): Promise<Grant> {
   const ensName = input.ensName.trim().toLowerCase();
@@ -320,8 +321,9 @@ export async function issueGrant(input: {
     issuer = verified.issuer;
     claims = verified.claims;
     source = "oidc";
-  } else if (devMode() && input.devSubject) {
-    worldIdSub = input.devSubject;
+  } else if (devMode()) {
+    worldIdSub =
+      input.devSubject ?? `sandbox:${createHash("sha256").update(ensName).digest("hex").slice(0, 32)}`;
     issuer = "https://sandbox.auth.world.org";
     source = "dev";
   } else {
@@ -336,7 +338,7 @@ export async function issueGrant(input: {
     concertId: input.concertId,
     permission: "ticket.buy",
     maxTickets: input.maxTickets,
-    expiresAt: input.expiresAt,
+    expiresAt: input.expiresAt ?? Date.now() + 15 * 60 * 1000,
     issuedAt: Date.now(),
     source,
     idToken: source === "oidc" ? idToken : undefined,
@@ -344,7 +346,7 @@ export async function issueGrant(input: {
   };
 
   await withState((state) => {
-    if (!state.concerts.some((concert) => concert.id === input.concertId) && source === "oidc") {
+    if (!state.concerts.some((concert) => concert.id === input.concertId)) {
       throw new Error("Concert not found.");
     }
     if (!state.agents.some((agent) => agent.ensName === ensName)) {
@@ -362,17 +364,21 @@ export async function issueGrant(input: {
     }
   });
 
-  await publishIdentity(ensName, input.concertId);
+  if (input.publish !== false) await publishIdentity(ensName, input.concertId);
   return grant;
 }
 
-export async function publishIdentity(ensName: string, concertId: string): Promise<void> {
+export async function publishIdentity(
+  ensName: string,
+  concertId: string,
+  options?: { pointAddress?: boolean },
+): Promise<void> {
   const name = ensName.trim().toLowerCase();
   const current = await readState();
   const grant = [...current.grants].reverse().find((item) => item.ensName === name && item.concertId === concertId);
   if (!grant) return;
   const evm = await ensureAgentEvmWallet(name);
-  const minted = await mintEns(name, evm.address);
+  const minted = await mintEns(name, evm.address, options);
   const record = JSON.stringify({
     sub: grant.worldIdSub,
     issuer: grant.issuer,
@@ -411,7 +417,11 @@ export async function publishIdentity(ensName: string, concertId: string): Promi
   });
 }
 
-export async function buyTicket(ensName: string, concertId: string): Promise<Attempt> {
+export async function buyTicket(
+  ensName: string,
+  concertId: string,
+  options?: { chain?: boolean },
+): Promise<Attempt> {
   const name = ensName.trim().toLowerCase();
   const now = Date.now();
   const wallet = await ensureAgentWallet(name);
@@ -469,7 +479,12 @@ export async function buyTicket(ensName: string, concertId: string): Promise<Att
     };
   });
 
-  if (reserved.attempt.outcome === "PURCHASE_COMPLETE" && reserved.attempt.ticketHash && reserved.attempt.worldIdSub) {
+  if (
+    options?.chain !== false &&
+    reserved.attempt.outcome === "PURCHASE_COMPLETE" &&
+    reserved.attempt.ticketHash &&
+    reserved.attempt.worldIdSub
+  ) {
     let fundingError: string | undefined;
     if (suiConfigured() && reserved.poolId) {
       const need = BigInt(reserved.priceMist) + TICKET_GAS_RESERVE;
