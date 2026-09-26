@@ -7,5 +7,6 @@ dist
 *.tsbuildinfo
 .turbo
 contracts/build
+.vercel
 coverage
 .DS_Store

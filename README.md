@@ -86,6 +86,10 @@ Publish `contracts` to testnet or devnet, then set `SUI_PRIVATE_KEY` and `SUI_PA
 
 The streamable HTTP endpoint is `http://127.0.0.1:8787/mcp`.
 
+## Hosted dashboard
+
+The public site is the organizer view. Serverless instances cannot keep the MCP server or spawn the swarm, so the deployment opens on the Midnight Signal swarm recorded in the repo. Creating a concert there lasts only as long as that instance. Run `pnpm dev` locally to buy through MCP and launch a new attack.
+
 ## Integration notes
 
 World ID sandbox discovery, PKCE, and RS256 ID tokens worked against `https://sandbox.auth.world.org`. The part that still depends on event credentials is the portal client id. Dev-mode subjects keep the gate logic demoable before that client exists. The highest-leverage improvement would be a documented public sandbox client for local redirect URIs, so the human path does not block on portal setup during a hackathon.
